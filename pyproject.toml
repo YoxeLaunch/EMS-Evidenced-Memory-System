@@ -27,6 +27,7 @@ packages = [
     "providers",
     "rag",
     "orchestration",
+    "memory",
 ]
 
 [tool.pytest.ini_options]
