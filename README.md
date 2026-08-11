@@ -29,5 +29,12 @@ para la motivación completa y la analogía de origen.
 
 ## Estado
 
-Solo documentación de diseño. Sin código todavía — ver `docs/03-ROADMAP.md`,
-Fase 0.
+Fases 0-6 de `docs/03-ROADMAP.md` implementadas y en verde (`pytest`):
+empaquetado, infraestructura vendorizada de MagnusAgent (`providers/`,
+`rag/`, `orchestration/`), y el pipeline de memoria nivelada completo
+(`memory/`) — captura T0, extracción T1, refuerzo/sucesión T2, evaluador de
+promoción T3, recuperación integrada por nivel, y caducidad/revival.
+
+Pendiente: Fase 7 (piloto acotado) — por diseño no es algo que se complete
+escribiendo código; necesita un agente real, un dominio de riesgo medio-bajo
+y conversaciones genuinas de uso durante un periodo de prueba.
