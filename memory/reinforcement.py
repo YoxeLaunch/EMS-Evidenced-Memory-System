@@ -22,6 +22,15 @@ Repetición dentro de la misma conversación NO cuenta como señal de refuerzo
 (mismo criterio del documento): si el `source_conversation_id` del
 candidato ya está en `source_conversation_ids` del claim que matchea, se
 devuelve el claim sin incrementar nada.
+
+Revivir un claim caducado (Fase 6, `memory/decay.py`)
+--------------------------------------------------------
+Si no hay match activo, se busca también entre los claims `EXPIRED` del
+mismo subject (`find_match(..., include_expired=True)`). Un refuerzo nuevo
+sobre algo que había dejado de recuperarse por caducidad lo revive
+(`status` vuelve a `active`) en vez de crear un candidato T1 duplicado desde
+cero — mismo criterio de `docs/01-MEMORIA-NIVELADA.md`: "conserva
+proveniencia por si se reactiva".
 """
 from __future__ import annotations
 
@@ -62,12 +71,14 @@ def reinforce_or_create(
     candidate: MemoryClaim, store: InMemoryClaimStore, *,
     embedder: HashingEmbedder | None = None,
     threshold: int = DEFAULT_REINFORCEMENT_THRESHOLD,
+    revive_expired: bool = True,
 ) -> MemoryClaim:
     """Procesa un candidato T1 recién extraído contra el store.
 
     Devuelve el claim resultante: el existente reforzado (posiblemente ya
-    ascendido a T2), el nuevo candidato reemplazando a uno contradicho, o el
-    candidato mismo si es genuinamente nuevo.
+    ascendido a T2 o revivido desde `expired`), el nuevo candidato
+    reemplazando a uno contradicho, o el candidato mismo si es genuinamente
+    nuevo.
     """
     contradicho = detect_contradiction(candidate, store)
     if contradicho is not None:
@@ -75,16 +86,23 @@ def reinforce_or_create(
         return supersede(candidate, contradicho, store)
 
     match = find_match(candidate, store, embedder=embedder)
+    if match is None and revive_expired:
+        match = find_match(candidate, store, embedder=embedder, include_expired=True)
+
     if match is None:
         store.add(candidate)
         return candidate
 
     origen = candidate.source_conversation_ids[0]
-    if origen in match.source_conversation_ids:
+    era_expirado = match.status == Status.EXPIRED
+    if origen in match.source_conversation_ids and not era_expirado:
         return match  # misma conversación: no es una señal independiente
 
-    match.source_conversation_ids.append(origen)
-    match.reinforcement_count += 1
+    if era_expirado:
+        match.status = Status.ACTIVE
+    if origen not in match.source_conversation_ids:
+        match.source_conversation_ids.append(origen)
+        match.reinforcement_count += 1
     match.last_reinforced_at = candidate.first_seen_at
     match.confidence = max(match.confidence, candidate.confidence)
     if match.tier == Tier.T1 and match.reinforcement_count >= threshold:

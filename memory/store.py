@@ -31,10 +31,20 @@ class InMemoryClaimStore:
             out = [c for c in out if c.tier == tier]
         return out
 
-    def by_subject(self, agent_id: str, subject: str) -> list[MemoryClaim]:
-        """Claims activos del mismo agente y mismo `subject` normalizado —
-        el candidato a match previo a la comparación de embedding
-        (`memory/dedup.py`)."""
+    def by_subject(self, agent_id: str, subject: str, *,
+                   include_expired: bool = False) -> list[MemoryClaim]:
+        """Claims del mismo agente y mismo `subject` normalizado — el
+        candidato a match previo a la comparación de embedding
+        (`memory/dedup.py`).
+
+        `include_expired=True` añade los `status=expired` a la búsqueda: es
+        lo que permite que un refuerzo nuevo revive un claim caducado
+        (`memory/decay.py`) en vez de crear un duplicado desde cero. Por
+        defecto solo activos — la detección de contradicción y el match
+        normal no deben considerar algo que ya dejó de ser evidencia vigente.
+        """
         s = normalize_text(subject)
-        return [c for c in self.active(agent_id=agent_id)
-                if normalize_text(c.subject) == s]
+        estados = {Status.ACTIVE} | ({Status.EXPIRED} if include_expired else set())
+        return [c for c in self._claims.values()
+                if c.agent_id == agent_id and c.status in estados
+                and normalize_text(c.subject) == s]

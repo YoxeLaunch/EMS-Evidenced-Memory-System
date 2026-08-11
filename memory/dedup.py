@@ -24,15 +24,21 @@ DEFAULT_THRESHOLD = 0.55
 def find_match(
     candidate: MemoryClaim, store: InMemoryClaimStore, *,
     embedder: HashingEmbedder | None = None, threshold: float = DEFAULT_THRESHOLD,
+    include_expired: bool = False,
 ) -> MemoryClaim | None:
-    """El claim activo existente que el candidato refuerza, o `None` si es nuevo.
+    """El claim existente que el candidato refuerza, o `None` si es nuevo.
+
+    Por defecto solo busca contra claims activos. `include_expired=True` lo
+    usa `memory/reinforcement.py` para revivir un claim caducado
+    (`memory/decay.py`) en vez de crear un duplicado.
 
     El embedder se ajusta (`fit`) sobre el corpus de candidatos comparados en
     cada llamada — es barato porque el conjunto de claims por subject suele
     ser pequeño, y evita depender de un `fit` global compartido entre
     llamadas que Fase 2 no necesita todavía.
     """
-    mismos_subject = store.by_subject(candidate.agent_id, candidate.subject)
+    mismos_subject = store.by_subject(candidate.agent_id, candidate.subject,
+                                      include_expired=include_expired)
     if not mismos_subject:
         return None
     if candidate.id in {c.id for c in mismos_subject}:
