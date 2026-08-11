@@ -57,7 +57,7 @@ def test_correccion_directa_produce_un_candidato():
     [c] = extract_candidates(record)
     assert c.tier == Tier.T1
     assert c.text == "vivo en Santo Domingo"
-    assert c.subject == "vivo"
+    assert c.subject == "santo"
     assert c.agent_id == "a1"
     assert c.source_conversation_ids == ["conv-1"]
 

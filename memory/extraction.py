@@ -31,9 +31,18 @@ import re
 from memory.claims import MemoryClaim
 from memory.capture import ConversationRecord, Turn
 
-_INTERROGATIVOS = (
-    "que", "qué", "como", "cómo", "cuando", "cuándo", "donde", "dónde",
-    "por que", "por qué", "cual", "cuál", "quien", "quién", "cuanto", "cuánto",
+#: Interrogativos usados para detectar preguntas SIN "?" al final. Con
+#: acento y sobre el texto ORIGINAL (no el normalizado sin acentos): "cómo"
+#: (pregunta) y "como" (verbo, primera persona de "comer") son la MISMA
+#: palabra una vez que se le quitan los acentos, y "como carne todos los
+#: días" es justo el ejemplo canónico de declaración en primera persona de
+#: `docs/01-MEMORIA-NIVELADA.md`. Sin el acento como señal, cualquier frase
+#: que empiece con "como" se leería como pregunta y bloquearía ese caso. El
+#: costo es no detectar como pregunta un "como..." interrogativo escrito sin
+#: tilde y sin signo "?" — un caso que además ya cubre la comprobación de
+#: puntuación (`?` o `¿`) en la inmensa mayoría de veces.
+_INTERROGATIVOS_CON_ACENTO = (
+    "qué", "cómo", "cuándo", "dónde", "por qué", "cuál", "quién", "cuánto",
 )
 
 _MARCADORES_CORRECCION = (
@@ -75,10 +84,10 @@ def _normalizar_sin_acentos(s: str) -> str:
 
 def _es_pregunta(oracion: str) -> bool:
     o = oracion.strip()
-    if o.endswith("?") or o.endswith("¿"):
+    if o.endswith("?") or "¿" in o:
         return True
-    o_norm = _normalizar_sin_acentos(o)
-    return any(o_norm.startswith(q + " ") or o_norm == q for q in _INTERROGATIVOS)
+    o_lower = o.lower()
+    return any(o_lower.startswith(q + " ") or o_lower == q for q in _INTERROGATIVOS_CON_ACENTO)
 
 
 def _oraciones(texto: str) -> list[str]:
@@ -97,6 +106,25 @@ def _sujeto_desde(texto_restante: str) -> str:
     return _normalizar_sin_acentos(texto_restante) or texto_restante
 
 
+def _sujeto_para_texto(texto: str) -> str:
+    """Sujeto de CUALQUIER texto candidato, reconociendo un marcador de
+    primera persona embebido si lo hay ("vivo en Santiago" → "santiago", no
+    "vivo"). Se usa tanto para declaraciones directas como para el texto que
+    queda tras una corrección o una confirmación — así "vivo en Santo
+    Domingo" y "en realidad, vivo en Santiago" producen el MISMO subject
+    ("santo"/"santiago" en este caso vienen del resto tras el marcador) y la
+    corrección puede encontrar y suceder al claim original en vez de crear
+    uno sin relación.
+    """
+    o_norm = _normalizar_sin_acentos(texto)
+    cuerpo = o_norm[3:] if o_norm.startswith("no ") else o_norm
+    for marcador in _MARCADORES_PRIMERA_PERSONA:
+        if cuerpo == marcador or cuerpo.startswith(marcador + " "):
+            resto = cuerpo[len(marcador):].strip()
+            return _sujeto_desde(resto) if resto else marcador
+    return _sujeto_desde(texto)
+
+
 def _candidato_correccion(oracion: str) -> tuple[str, str] | None:
     o_norm = _normalizar_sin_acentos(oracion)
     for marcador in _MARCADORES_CORRECCION:
@@ -104,7 +132,7 @@ def _candidato_correccion(oracion: str) -> tuple[str, str] | None:
             resto = oracion[len(marcador):].strip()
             if not resto:
                 return None
-            return _sujeto_desde(resto), resto
+            return _sujeto_para_texto(resto), resto
     return None
 
 
@@ -114,9 +142,7 @@ def _candidato_primera_persona(oracion: str) -> tuple[str, str] | None:
     cuerpo = o_norm[3:] if prefijo_no else o_norm
     for marcador in _MARCADORES_PRIMERA_PERSONA:
         if cuerpo == marcador or cuerpo.startswith(marcador + " "):
-            resto = cuerpo[len(marcador):].strip()
-            sujeto = _sujeto_desde(resto) if resto else marcador
-            return sujeto, oracion.strip()
+            return _sujeto_para_texto(oracion), oracion.strip()
     return None
 
 
@@ -161,7 +187,7 @@ def extract_candidates(
             if _es_confirmacion(oracion):
                 previo = _asistente_anterior(turnos, i)
                 if previo is not None and not _es_pregunta(previo):
-                    sujeto = _sujeto_desde(previo)
+                    sujeto = _sujeto_para_texto(previo)
                     candidatos.append(MemoryClaim.new_candidate(
                         agent_id=record.agent_id, subject=sujeto, text=previo.strip(),
                         source_conversation_id=record.id,
