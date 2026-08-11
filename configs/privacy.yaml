@@ -1,0 +1,24 @@
+# Política de EGRESO de datos — principio 5 de docs/00-VISION-Y-ARQUITECTURA.md.
+#
+# Editar este archivo ES el acto de consentimiento: no hay ningún camino por
+# el que un namespace marcado `local_only` acabe en un proveedor remoto por
+# configuración implícita o por un fallback automático. Si no hay proveedor
+# local disponible, el sistema degrada y lo declara — nunca "se arregla"
+# mandando los datos fuera.
+#
+# Valores de `politica`:
+#   local_only     — solo proveedores locales (Ollama). Es el DEFECTO.
+#   remote_allowed — puede ir a proveedores remotos (Anthropic, etc.).
+#
+# Este archivo es un ejemplo de arranque para Fase 0 — sin agentes ni
+# MemoryClaim reales todavía, `namespaces:` queda vacío a propósito. Cuando
+# exista un agente/dominio real, añadir aquí su namespace explícitamente
+# antes de que pueda salir del dispositivo.
+
+egreso:
+  por_defecto: local_only
+
+  proveedores_locales:
+    - ollama
+
+  namespaces: {}

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "embudo"
+version = "0.1.0"
+description = "Memoria nivelada para agentes que aprenden de sus propias conversaciones"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# Adaptadores de proveedor remoto: opcionales a propósito, igual que en
+# MagnusAgent — un checkout limpio debe instalarse y testearse sin
+# credenciales ni SDKs de nube.
+anthropic = ["anthropic>=0.40"]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools]
+packages = [
+    "providers",
+    "rag",
+    "orchestration",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+# Las pruebas nunca deben salir a la red ni pedir credenciales; los tests que
+# necesiten un proveedor real deben marcarse y quedan desactivados por defecto.
+markers = [
+    "network: requiere red o credenciales (desactivado en la suite por defecto)",
+]
