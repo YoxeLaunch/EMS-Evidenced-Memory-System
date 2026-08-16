@@ -35,6 +35,92 @@ def _claim_to_document(claim: MemoryClaim) -> dict:
             "source": f"claim:{claim.id}", "heading": claim.subject, "hash": claim.id}
 
 
+def _construir_indice(claims: list[MemoryClaim], embedder: HashingEmbedder | None
+                      ) -> tuple[RAGPipeline, dict[str, MemoryClaim]]:
+    """Pipeline híbrido sobre los claims dados. Compartido por
+    `build_tiered_context` (sin cache) y `CachedTieredRetriever` (con cache)
+    — una sola construcción, dos políticas de uso."""
+    por_id = {c.id: c for c in claims}
+    documentos = [_claim_to_document(c) for c in claims]
+    dense = InMemoryVectorStore(embedder or HashingEmbedder())
+    dense.index(documentos)
+    return RAGPipeline(dense, ClaimLexicalRetriever(documentos)), por_id
+
+
+class CachedTieredRetriever:
+    """Índice de recuperación con invalidación por snapshot — Fase A2.
+
+    `build_tiered_context` re-construía el índice (fit del embedder +
+    embedding de TODOS los T2/T3 del agente) en CADA consulta: O(n) por
+    query. Este retriever construye una vez por escritura: la huella del
+    corpus por agente — `(id, tier, status, last_reinforced_at)` de los
+    activos T2/T3, que cubre toda mutación que afecta la recuperación — se
+    compara en cada llamada; sin cambios, se reutiliza todo.
+
+    **Desviación del plan A2, documentada en COLABORACION.md:** el plan
+    proponía cachear vectores por `claim_id` con invalidación solo del claim
+    modificado. No es sonido con este embedder: `HashingEmbedder` pondera
+    por IDF ajustado sobre el CORPUS — un vector no es propiedad del claim
+    aislado sino del claim dentro del corpus, e invalidar solo uno
+    serviría vectores ponderados con un IDF viejo. La invalidación por
+    snapshot es la correcta para el diseño actual; cuando exista un perfil
+    de embedder corpus-independiente, el cacheo por claim vuelve a tener
+    sentido y la huella se afina.
+
+    `builds` cuenta las construcciones — telemetría para verificar que la
+    política de reuso funciona (y test del criterio de hecho de A2).
+    """
+
+    def __init__(self, store: InMemoryClaimStore, *, top_k: int = 8,
+                 t2_min_score: float = DEFAULT_T2_MIN_SCORE,
+                 t3_min_score: float = DEFAULT_T3_MIN_SCORE,
+                 embedder: HashingEmbedder | None = None):
+        self._store = store
+        self._top_k = top_k
+        self._t2_min_score = t2_min_score
+        self._t3_min_score = t3_min_score
+        self._embedder = embedder
+        self._cache: dict[str, tuple[tuple, RAGPipeline, dict[str, MemoryClaim]]] = {}
+        self.builds = 0
+
+    def _huella(self, claims: list[MemoryClaim]) -> tuple:
+        """(id, tier, status, contador, procedencia, timestamp) por claim.
+        El contador y la longitud de procedencia son necesarios además del
+        timestamp: los timestamps tienen resolución de segundos y dos
+        refuerzos dentro del mismo segundo empatarían — la huella debe
+        capturar TODA mutación que afecta la recuperación, no solo las que
+        cambian el reloj."""
+        return tuple(
+            (c.id, c.tier.value, c.status.value, c.reinforcement_count,
+             len(c.source_conversation_ids), c.last_reinforced_at)
+            for c in sorted(claims, key=lambda c: c.id))
+
+    def context_for(self, query: str, agent_id: str) -> TieredRAGContext:
+        claims = (self._store.active(agent_id=agent_id, tier=Tier.T2)
+                  + self._store.active(agent_id=agent_id, tier=Tier.T3))
+        if not claims:
+            return TieredRAGContext(query, [])
+
+        entrada = self._cache.get(agent_id)
+        if entrada is None or entrada[0] != self._huella(claims):
+            pipeline, por_id = _construir_indice(claims, self._embedder)
+            self._cache[agent_id] = (self._huella(claims), pipeline, por_id)
+            self.builds += 1
+        else:
+            _, pipeline, por_id = entrada
+
+        evidencia: list[TieredEvidence] = []
+        for tier, umbral in ((Tier.T2, self._t2_min_score), (Tier.T3, self._t3_min_score)):
+            ctx = pipeline.build_context(RAGRequest(
+                query=query, namespaces=[agent_id], top_k=self._top_k,
+                min_score=umbral, require_citations=False))
+            for chunk in ctx.chunks:
+                claim = por_id.get(chunk.chunk_id)
+                if claim is not None and claim.tier == tier:
+                    evidencia.append(TieredEvidence(chunk, tier))
+        return TieredRAGContext(query, evidencia)
+
+
 class ClaimLexicalRetriever:
     """Retriever léxico sobre `MemoryClaim.text`: solape de tokens
     normalizados. Determinista y sin dependencias — mismo espíritu que el
@@ -108,19 +194,17 @@ def build_tiered_context(
     pero se consulta dos veces — una por umbral — y cada pasada descarta lo
     que no sea de su propio nivel. Es el precio de aplicar un umbral
     distinto por tier con la misma `RAGPipeline` sin bifurcar su contrato.
+
+    Sin cache: reconstruye el índice en cada llamada. Para bucles de
+    servicio (muchas consultas, pocas escrituras) usar
+    `CachedTieredRetriever` — Fase A2.
     """
     claims_t2 = store.active(agent_id=agent_id, tier=Tier.T2)
     claims_t3 = store.active(agent_id=agent_id, tier=Tier.T3)
-    por_id = {c.id: c for c in claims_t2 + claims_t3}
-
-    if not por_id:
+    if not claims_t2 and not claims_t3:
         return TieredRAGContext(query, [])
 
-    documentos = [_claim_to_document(c) for c in claims_t2 + claims_t3]
-    dense = InMemoryVectorStore(embedder or HashingEmbedder())
-    dense.index(documentos)
-    lexical = ClaimLexicalRetriever(documentos)
-    pipeline = RAGPipeline(dense, lexical)
+    pipeline, por_id = _construir_indice(claims_t2 + claims_t3, embedder)
 
     evidencia: list[TieredEvidence] = []
     for tier, umbral in ((Tier.T2, t2_min_score), (Tier.T3, t3_min_score)):
