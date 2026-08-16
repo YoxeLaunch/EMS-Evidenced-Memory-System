@@ -166,23 +166,21 @@ sequenceDiagram
     participant EMS as EMS Facade
     participant DB as SQLite ClaimStore
 
-    Note over User, DB: Phase 1: Statement (enters as T1)
-    User->>EMS: "I eat meat every day"
+    Note over User, DB: Phase 1: Initial statement (enters as T1)
+    User->>EMS: Declares: I eat meat every day
     EMS->>DB: Save Claim #101 (Subject: meat, Tier: T1, Status: active)
 
     Note over User, DB: Phase 2: Declared change of state
-    User->>EMS: "I no longer eat meat"
-    EMS->>EMS: Explicit negation detected BEFORE semantic match
-    EMS->>DB: Create Claim #205 (Tier: T1 — inherits no authority, supersedes: #101)
-    EMS->>DB: Mark #101 (Status: superseded, superseded_by: #205) + custody event
+    User->>EMS: Declares: I no longer eat meat
+    EMS->>EMS: Explicit negation detected before semantic match
+    EMS->>DB: Create Claim #205 (Tier: T1, supersedes: #101)
+    EMS->>DB: Mark #101 as superseded (superseded_by: #205) + custody event
 
     Note over User, DB: Phase 3: Retrieval
-    User->>EMS: Recall "what do I eat?"
+    User->>EMS: Asks: What do I eat?
     EMS->>DB: Query active T2/T3 claims only
-    DB-->>EMS: #205 is still T1 → not citable as fact yet
-    EMS-->>User: No citable evidence yet (needs multi-session reinforcement)
-
-    Note over User, DB: Detection is EXPLICIT (literal negation with<br/>"ya no / dejé de" prefixes); implicit or semantic contradiction<br/>("I moved to another city") is an open problem, not a promise.
+    DB-->>EMS: Claim #205 is still T1 (not citable as fact yet)
+    EMS-->>User: No citable evidence yet (requires multi-session reinforcement)
 ```
 
 ---

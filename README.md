@@ -168,23 +168,21 @@ sequenceDiagram
     participant EMS as Fachada EMS
     participant DB as SQLite ClaimStore
 
-    Note over Usuario, DB: Fase 1: Declaración (entra como T1)
-    Usuario->>EMS: "Como carne todos los días"
+    Note over Usuario, DB: Fase 1: Declaración inicial (entra como T1)
+    Usuario->>EMS: Declara: Como carne todos los días
     EMS->>DB: Guarda Claim #101 (Sujeto: carne, Tier: T1, Estado: active)
 
     Note over Usuario, DB: Fase 2: Cambio de estado declarado
-    Usuario->>EMS: "Ya no como carne"
-    EMS->>EMS: Negación explícita detectada ANTES del match semántico
-    EMS->>DB: Crea Claim #205 (Tier: T1 — no hereda autoridad, supersedes: #101)
-    EMS->>DB: Marca #101 (Estado: superseded, superseded_by: #205) + evento de custodia
+    Usuario->>EMS: Declara: Ya no como carne
+    EMS->>EMS: Negación explícita detectada antes del match semántico
+    EMS->>DB: Crea Claim #205 (Tier: T1, supersedes: #101)
+    EMS->>DB: Marca #101 como superseded (superseded_by: #205) + evento de custodia
 
     Note over Usuario, DB: Fase 3: Recuperación
-    Usuario->>EMS: "¿Qué como?"
+    Usuario->>EMS: Consulta: ¿Qué como?
     EMS->>DB: Recupera únicamente claims activos T2/T3
-    DB-->>EMS: #205 sigue en T1 → aún no citable como hecho
-    EMS-->>Usuario: Sin evidencia citable todavía (necesita refuerzo multi-sesión)
-
-    Note over Usuario, DB: La detección es EXPLÍCITA (negación literal con<br/>prefijos "ya no/dejé de"); la contradicción implícita o semántica<br/>("me mudé a otra ciudad") es problema abierto, no prometido.
+    DB-->>EMS: Claim #205 sigue en T1 (aún no citable como hecho)
+    EMS-->>Usuario: Sin evidencia citable todavía (requiere refuerzo multi-sesión)
 ```
 
 ---
