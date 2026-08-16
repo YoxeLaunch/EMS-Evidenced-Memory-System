@@ -40,7 +40,7 @@ def _procesar(store, texto: str, *, conv_id: str):
 
 
 def test_ciclo_de_vida_completo_emite_su_cadena_sin_intervencion(tmp_path):
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
 
     for i in range(1, 4):
         resultado = _procesar(store, "soy alergico a la penicilina", conv_id=f"conv-{i}")
@@ -92,7 +92,7 @@ def test_sucesion_canonica_emite_dos_eventos_y_documenta_el_reemplazo(tmp_path):
     """El ejemplo de docs/01: 'ya no como carne' tras 'como carne todos los
     días'. El reemplazado queda con su evento supersession; el nuevo con su
     extracción — y la relación vive en el payload, no hay que inferirla."""
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     original = _procesar(store, "como carne todos los dias", conv_id="conv-1")
     nuevo = _procesar(store, "ya no como carne", conv_id="conv-2")
 
@@ -112,7 +112,7 @@ def test_sucesion_canonica_emite_dos_eventos_y_documenta_el_reemplazo(tmp_path):
 def test_repeticion_en_la_misma_conversacion_no_genera_evento(tmp_path):
     """Sin señal independiente no hay transición — y sin transición no hay
     evento: la cadena no se ruido."""
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     _procesar(store, "me gusta el cafe negro", conv_id="conv-1")
     _procesar(store, "me gusta el cafe negro", conv_id="conv-1")
 
@@ -122,7 +122,7 @@ def test_repeticion_en_la_misma_conversacion_no_genera_evento(tmp_path):
 
 
 def test_revival_desde_expirado_documenta_el_estado_anterior(tmp_path):
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     claim = _procesar(store, "me gusta el cafe negro", conv_id="conv-1")
 
     claim = store.get(claim.id)
@@ -142,7 +142,7 @@ def test_revival_desde_expirado_documenta_el_estado_anterior(tmp_path):
 def test_promocion_rechazada_no_genera_evento(tmp_path):
     """Un intento fallido no cambia estado; sin transición no hay evento.
     La decisión y su motivo viven en el PromotionResult del llamante."""
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     claim = _procesar(store, "me gusta el cafe negro", conv_id="conv-1")
 
     resultado = promote_to_t3(store.get(claim.id), store)  # T1: rechazado

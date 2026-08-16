@@ -3,7 +3,7 @@
 Portado de MagnusAgent (`orchestration/privacy.py`) sin cambios de diseño —
 ver `docs/02-COMPONENTES-REUTILIZABLES.md`. Carga `configs/privacy.yaml` y
 responde a una sola pregunta: **¿puede el contenido de estos namespaces salir
-del dispositivo?** En Embudo la granularidad real objetivo es el
+del dispositivo?** En EMS la granularidad real objetivo es el
 claim/subject de un `MemoryClaim`, no un namespace de wiki — namespace sigue
 siendo la unidad hoy porque `MemoryClaim` todavía no existe (fase de memoria
 nivelada); el contrato no cambia cuando se adopte esa granularidad.

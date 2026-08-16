@@ -6,7 +6,7 @@
 
 [![Python 3.10+](https://img.shields.io/badge/PYTHON-3.10%2B-0288D1?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![License Apache 2.0](https://img.shields.io/badge/LICENSE-APACHE%202.0-D32F2F?style=for-the-badge)](LICENSE)
-[![Tests Passed](https://img.shields.io/badge/TESTS-177%2F177%20PASSED-00C853?style=for-the-badge&logo=pytest&logoColor=white)]()
+[![Tests Passed](https://img.shields.io/badge/TESTS-178%2F178%20PASSED-00C853?style=for-the-badge&logo=pytest&logoColor=white)]()
 [![Privacy Local-First](https://img.shields.io/badge/PRIVACY-LOCAL--FIRST-FF6D00?style=for-the-badge)]()
 [![Storage SQLite + JSONL](https://img.shields.io/badge/STORAGE-SQLITE%20%2B%20JSONL-546E7A?style=for-the-badge&logo=sqlite&logoColor=white)]()
 
@@ -161,7 +161,7 @@ flowchart TB
 sequenceDiagram
     autonumber
     actor User
-    participant EMS as Embudo Facade
+    participant EMS as EMS Facade
     participant DB as SQLite ClaimStore
 
     Note over User, DB: Phase 1: Statement (enters as T1)
@@ -278,14 +278,14 @@ class MemoryClaim:
 
 ## 📈 Project Status
 
-**Everything listed below is implemented and verified by the test suite (177 tests, offline, 100% deterministic, no LLM, no credentials).**
+**Everything listed below is implemented and verified by the test suite (178 tests, offline, 100% deterministic, no LLM, no credentials).**
 
 | Component | Status |
 |---|---|
 | Full T0→T3 pipeline (capture, extraction, reinforcement, promotion, decay, revival) | ✅ |
 | Anti-echo: contradiction before match, multi-session reinforcement, non-destructive succession | ✅ |
 | `SqliteClaimStore` + transactional custody chain (canonical event payloads, FK, versioned migrations) | ✅ |
-| Public `embudo` facade + `embudo stats` CLI | ✅ |
+| Public `ems` facade + `ems stats` CLI | ✅ |
 | Snapshot-invalidated retrieval index cache | ✅ |
 | Derived accumulated confidence (telemetry, not a gate) | ✅ |
 

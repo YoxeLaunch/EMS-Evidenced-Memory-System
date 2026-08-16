@@ -25,7 +25,7 @@ def _claim(source: str = "conv-1") -> MemoryClaim:
 
 # -- persistencia y cadena de custodia ------------------------------------------------
 def test_reinicio_preserva_claims_eventos_y_fuentes(tmp_path):
-    db = tmp_path / "embudo.db"
+    db = tmp_path / "ems.db"
     store = SqliteClaimStore(db)
     store.record_conversation_source(
         "conv-1", agent_id="a1", user_id="user-1",
@@ -59,7 +59,7 @@ def test_reinicio_preserva_claims_eventos_y_fuentes(tmp_path):
 
 
 def test_los_eventos_no_se_borran_ni_reescriben(tmp_path):
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     claim = _claim()
     store.add(claim, event_type="extraction")
     store.add(claim, event_type="extraction")  # re-add del mismo claim
@@ -70,7 +70,7 @@ def test_los_eventos_no_se_borran_ni_reescriben(tmp_path):
 
 # -- atomicidad [D-07] -----------------------------------------------------------------
 def test_claim_y_evento_se_escriben_juntos_o_no_se_escribe_nada(tmp_path):
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     claim = _claim()
 
     # un payload no serializable revienta ANTES de tocar disco
@@ -82,7 +82,7 @@ def test_claim_y_evento_se_escriben_juntos_o_no_se_escribe_nada(tmp_path):
 
 
 def test_tipo_de_evento_invalido_se_rechaza(tmp_path):
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     with pytest.raises(ValueError, match="promocion"):
         store.add(_claim(), event_type="promocion")  # sin tilde: typo que
         # rompería la cadena de custodia en silencio si pasara
@@ -91,7 +91,7 @@ def test_tipo_de_evento_invalido_se_rechaza(tmp_path):
 
 # -- single-writer [D-06] ----------------------------------------------------------------
 def test_un_segundo_writer_falla_con_error_claro_no_colgandose(tmp_path):
-    db = tmp_path / "embudo.db"
+    db = tmp_path / "ems.db"
     store = SqliteClaimStore(db, busy_timeout_ms=0)
 
     otro = sqlite3.connect(str(db), isolation_level=None)
@@ -112,13 +112,13 @@ def test_un_segundo_writer_falla_con_error_claro_no_colgandose(tmp_path):
 
 # -- esquema versionado y migraciones ------------------------------------------------
 def test_db_recien_creada_queda_en_la_version_actual(tmp_path):
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     assert store.schema_version == SCHEMA_VERSION
     store.close()
 
 
 def test_una_db_del_futuro_se_rechaza_en_vez_de_corromperse(tmp_path):
-    db = tmp_path / "embudo.db"
+    db = tmp_path / "ems.db"
     store = SqliteClaimStore(db)
     store.close()
 
@@ -134,7 +134,7 @@ def test_migracion_desde_version_anterior(tmp_path):
     """Simula una DB v0 (esquema actual pero user_version=0, como una DB
     pre-versionado): al abrirla migra dentro de transacciones y queda
     operativa."""
-    db = tmp_path / "embudo.db"
+    db = tmp_path / "ems.db"
     store = SqliteClaimStore(db)
     store.add(_claim(), event_type="extraction")
     store.close()
@@ -152,7 +152,7 @@ def test_migracion_desde_version_anterior(tmp_path):
 
 # -- detalles del contrato ----------------------------------------------------------------
 def test_los_timestamps_de_eventos_son_utc(tmp_path):
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     store.add(_claim(), event_type="extraction")
     ts = store.events()[0].ts
     assert ts.endswith("+00:00"), f"UTC explícito, no hora local: {ts}"
@@ -162,7 +162,7 @@ def test_los_timestamps_de_eventos_son_utc(tmp_path):
 def test_fk_un_evento_no_puede_referenciar_un_claim_inexistente(tmp_path):
     """Requisito de custodia T-06 (migración v2): sin FK, una cadena podía
     referenciar ids inexistentes sin error."""
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     with pytest.raises(sqlite3.IntegrityError):
         store.append_event("expiration", claim_id="claim-fantasma")
     store.close()
@@ -171,7 +171,7 @@ def test_fk_un_evento_no_puede_referenciar_un_claim_inexistente(tmp_path):
 def test_fk_un_evento_con_claim_null_es_valido(tmp_path):
     """El claim_id es nullable a propósito: eventos globales (p. ej. un
     futuro wiki_sync masivo) no cuelgan de un claim concreto."""
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     seq = store.append_event("expiration", claim_id=None)
     assert store.events()[0].seq == seq
     store.close()
@@ -181,7 +181,7 @@ def test_conversation_id_no_se_valida_contra_sources_d14(tmp_path):
     """[D-14]: los metadatos de conversación son best-effort — un evento
     puede referenciar una conversación cuya fuente no se registró (todavía).
     La FK estructural es claim_id; la conversacional no."""
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     store.add(_claim(), event_type="extraction", conversation_id="conv-no-registrada")
     assert store.events()[0].conversation_id == "conv-no-registrada"
     store.close()
@@ -190,7 +190,7 @@ def test_conversation_id_no_se_valida_contra_sources_d14(tmp_path):
 def test_migracion_v2_preserva_eventos_y_continuidad_de_seq(tmp_path):
     """Simula una DB v1 (sin FK en events): migra a v2, conserva los eventos
     y la secuencia AUTOINCREMENT continúa sin reiniciarse ni colisionar."""
-    db = tmp_path / "embudo.db"
+    db = tmp_path / "ems.db"
     store = SqliteClaimStore(db)
     store.add(_claim(), event_type="extraction")
     store.add(_claim(), event_type="reinforcement")
@@ -214,7 +214,7 @@ def test_migracion_v2_preserva_eventos_y_continuidad_de_seq(tmp_path):
 
 
 def test_events_filtra_por_tipo_y_claim(tmp_path):
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     a = _claim("conv-1")
     b = MemoryClaim.new_candidate(
         agent_id="a1", subject="te", text="me gusta el te",
@@ -230,7 +230,7 @@ def test_events_filtra_por_tipo_y_claim(tmp_path):
 
 
 def test_conversation_source_es_idempotente_y_completa_el_hash_despues(tmp_path):
-    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store = SqliteClaimStore(tmp_path / "ems.db")
     store.record_conversation_source(
         "conv-1", agent_id="a1", user_id="user-1", started_at="2026-08-16T10:00:00+00:00")
     store.record_conversation_source(

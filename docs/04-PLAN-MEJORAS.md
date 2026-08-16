@@ -23,7 +23,7 @@ hermano: docs/03-ROADMAP.md
 
 ## 1. Resumen ejecutivo
 
-Embudo tiene Fases 0-6 completas y en verde: el pipeline de memoria nivelada
+EMS tiene Fases 0-6 completas y en verde: el pipeline de memoria nivelada
 T0→T3 es funcional y testeado, pero vive dentro de sus propios tests. Los gaps
 identificados por la auditoría del 2026-08-16 son: sin persistencia de claims,
 sin superficie pública, dos grietas en el anti-eco, cero integración con
@@ -69,7 +69,7 @@ Esquema propuesto:
 - Tabla `events` append-only: `(ts, tipo, claim_id, payload_json)` con tipos
   `extraction|reinforcement|promotion|supersession|expiration|wiki_sync` —
   los mismos que `orchestration/audit.py:122-128` ya documenta y nadie emite.
-- WAL mode, un solo writer (embudo es single-process por diseño).
+- WAL mode, un solo writer (ems es single-process por diseño).
 - Los claims son regenerables desde T0 JSONL; los **events no** — son la
   cadena de custodia. El backupprioriza events.
 - Ver [P-01], [P-02].
@@ -84,8 +84,8 @@ claim modificado. `build_tiered_context` pasa de O(n) a O(1) amortizado.
 - Exports en `memory/__init__.py` (hoy 0 bytes): `record_conversation`,
   `extract_candidates`, `reinforce_or_create`, `promote_to_t3`,
   `build_tiered_context`, `SqliteClaimStore`, `expire_stale_claims`.
-- CLI `embudo` (console_script en `pyproject.toml`):
-  `embudo stats | capture | reinforce | promote | export`.
+- CLI `ems` (console_script en `pyproject.toml`):
+  `ems stats | capture | reinforce | promote | export`.
 - Ver [P-03].
 
 **A4. Auditoría cableada** (S)
@@ -94,7 +94,7 @@ sucesión/decay, además del `JsonlTraceStore` existente si está configurado.
 Cada promoción T3 debe poder reconstruir su cadena T0→T3 desde la DB.
 
 **Criterio de hecho de la Fase A:** matar el proceso, reabrir, y los claims
-persisten con su historial completo; `embudo stats` reporta claims por nivel;
+persisten con su historial completo; `ems stats` reporta claims por nivel;
 una promoción ejecutada en una sesión anterior es trazable evento a evento.
 
 ### Fase B — Corrección epistémica (protege la garantía mientras escala)
@@ -124,12 +124,12 @@ menos uno no funciona end-to-end.
 
 ### Fase C — Interop con el MAS (primer consumidor real)
 
-**C1. Adaptador `EmbudoMemoryEngine`** (L)
+**C1. Adaptador `EMSMemoryEngine`** (L)
 Implementa el puerto `MemoryEngine` de Magnus
 (`MagnusAgent/orchestration/memory/memory_engine.py`) como módulo puente
 (propuesto: `integration/magnus_bridge.py`). Mapeo:
 
-| MAS (puerto) | Embudo |
+| MAS (puerto) | EMS |
 |---|---|
 | `short_term.recall` | turnos de sesión (T0 en RAM) |
 | `long_term.recall` | `build_tiered_context` (etiquetas confianza_media/autoridad_plena ya diseñadas para prompt) |
@@ -148,7 +148,7 @@ Ver [P-05].
 - Al arrancar el servidor: `expire_stale_claims` como mantenimiento.
 
 **Criterio de hecho de la Fase C:** una sesión MCP real contra un agente Magnus
-produce claims T1 visibles en `embudo stats`; turnos posteriores de la misma
+produce claims T1 visibles en `ems stats`; turnos posteriores de la misma
  sesión reciben contexto T2/T3 etiquetado; cero casos de T1 citado como T3.
 
 ### Fase D — Puente bidireccional con la wiki
@@ -162,14 +162,14 @@ Un T4 contradictorio con un T3 **gana por diseño** y genera alerta
 
 **D2. Exportador T3 → borrador de nota** (M)
 Claims T3 promovidos de un mismo subject se compilan a un Markdown con
-frontmatter (`origen: embudo`, `evidencia: [conversation_ids]`,
+frontmatter (`origen: ems`, `evidencia: [conversation_ids]`,
 `promovido: fecha`) en una carpeta de staging — **nunca escribe la wiki
 directamente**. El humano cura y al aprobar se ingiere como T4. Es el
 mecanismo del nivel "doctorado" del Camino y el autoabastecimiento del
 segundo cerebro.
 
 **D3. Egresos alineados** (M)
-`agent_id`/`subject` de Embudo ↔ namespaces de la wiki/Magnus, para que la
+`agent_id`/`subject` de EMS ↔ namespaces de la wiki/Magnus, para que la
 política de egreso aplique por claim (un claim de salud jamás sale del
 dispositivo, hereda el `local_only` de su dominio).
 
@@ -194,7 +194,7 @@ Siempre **después** del estructural, como segundo gate.
 
 **Criterio de hecho de la Fase E:** sin API keys, todo el suite pasa idéntico
 (degradación total a heurística, cero cambios de comportamiento); con keys, la
-tasa de extracción sube medible en `embudo stats` sin que cambie ningún
+tasa de extracción sube medible en `ems stats` sin que cambie ningún
 criterio de promoción estructural.
 
 ### Fase F — Camino de Aprendizaje (dominio verificable)
@@ -230,7 +230,7 @@ Solo se abre con D1+D2 cerradas y empezando por UN dominio.
 
 ### Fase G — Operación
 
-- **G1. `embudo stats` extendido** (S): claims por nivel, tasa de promoción,
+- **G1. `ems stats` extendido** (S): claims por nivel, tasa de promoción,
   edad mediana, contradicciones pendientes, próximos a caducar — telemetría
   del piloto.
 - **G2. Derecho al olvido** (M): purga por `user_id`/`subject` de claims Y sus
@@ -270,10 +270,10 @@ de `docs/03` se ejecuta con C cerrada; F no se toca antes de D.
 - **[P-02]** ¿Tabla `events` en SQLite o JSONL append-only (consistente con
   T0 y trazas de Magnus) con SQLite solo para claims?
 - **[P-03]** ¿API pública como exports de `memory/__init__` o paquete
-  agregador `api.py`/`embudo/` nuevo?
+  agregador `api.py`/`ems/` nuevo?
 - **[P-04]** Fórmula de confianza acumulativa: ¿suma logarítmica propuesta, o
   esquema tipo Beta-Bernoulli (cada refuerzo un éxito, prior según origen)?
-- **[P-05]** ¿El bridge MAS vive en Embudo (`integration/`) o en Magnus como
+- **[P-05]** ¿El bridge MAS vive en EMS (`integration/`) o en Magnus como
   dependencia opcional? Implica quién rompe si cambia el puerto.
 - **[P-06]** ¿T4 como valor nuevo del enum `Tier` (rompe `match` exhaustivos)
   o como `status/source` especial fuera del enum de conversación?

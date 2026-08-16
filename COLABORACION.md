@@ -1,6 +1,6 @@
 # COLABORACION.md — Log compartido de trabajo conjunto
 
-Sistema de colaboración entre dos ingenieros de IA sobre el proyecto Embudo
+Sistema de colaboración entre dos ingenieros de IA sobre el proyecto EMS (antes Embudo)
 (y su integración con MagnusAgent y la wiki BRAIN).
 
 | Rol | Participante | Responsabilidad principal |
@@ -534,6 +534,50 @@ del README original que la reescritura había perdido. `.gitignore` +
 paralelo (así fue este README), pero TODO ejemplo de código que toque la
 API debe ejecutarse antes de commitearse — regla añadida de facto a mi
 flujo; el revisor puede formalizarla si quiere.
+
+— fin de la entrada —
+
+### 2026-08-16 — De: ZCode — Verificación del renombre Embudo → EMS (commit humano 7f865d0)
+
+El humano renombró paquete y fachada a EMS y pidió verificación completa.
+**Veredicto: renombre bien ejecutado en lo delicado; corregidos los
+residuos que quedaron.**
+
+**Lo que el renombre hizo bien (verificado):**
+- `embudo/` → `ems/`, fachada `Embudo` → `EMS`, con **alias
+  retrocompatibles** deliberados: `Embudo = EMS` (test
+  `test_retrocompatibilidad_alias_embudo` — la suite subió a 178) y script
+  dual `ems` + `embudo` en pyproject (nombre de paquete: `ems-memory`).
+- Migración de entorno backwards-compatible: `EMS_TRACE_DIR` con fallback
+  a `EMBUDO_TRACE_DIR`, prefijo de trazas `ems-*` con purga que también
+  limpia `embudo-*.jsonl` legacy — el detalle que casi nadie hace.
+- CLI, banner, READMEs (quickstart `from ems import EMS`, `ems stats`),
+  docs y mensajes de error internos actualizados.
+
+**Residuos encontrados y corregidos (este ciclo):**
+1. `orchestration/privacy.py:6` — prosa "En Embudo la granularidad..." se
+   había escapado → EMS.
+2. READMEs: participante "Fachada Embudo"/"Embudo Facade" en el diagrama
+   de sucesión y filas "`embudo` facade + `embudo stats`" en la tabla de
+   estado → `ems`.
+3. `docs/00`, `docs/02`, `docs/04` — prosa narrativa con el nombre viejo
+   (incluido `EmbudoMemoryEngine` → `EMSMemoryEngine`, `origen: embudo` →
+   `origen: ems`, `embudo stats` → `ems stats`).
+4. Contadores "177 tests" en badges y sección Estado de ambos READMEs →
+   178 (el test del alias lo subió).
+5. Nombres de DB temporal en tests (`embudo.db` → `ems.db`, cosmético).
+6. Cabecera de este log: "proyecto EMS (antes Embudo)". Las entradas
+   históricas del registro conservan "Embudo" a propósito — el registro es
+   append-only y esas referencias describen el pasado.
+
+**Verificación ejecutada:** suite 178/178, `from ems import EMS, Embudo`,
+alias `Embudo is EMS`, `ems --version` → `ems 0.2.0`. Grep final de
+residuos: solo quedan apariciones deliberadas (alias, fallbacks de
+migración, historia del log).
+
+**Nota:** la carpeta local sigue siendo `C:\Embudo` y el remote ya es
+`EMS-Evidenced-Memory-System` — renombrar la carpeta local es opcional y
+cosmético; nada del código lo referencia.
 
 — fin de la entrada —
 

@@ -15,7 +15,7 @@ redactó y versionó. Es una garantía fuerte — y también un cuello de botell
 no escala a dominios que nadie se ha sentado a documentar, y no aprende de la
 conversación misma.
 
-**Embudo pregunta: ¿se puede mantener esa misma garantía —que el sistema
+**EMS pregunta: ¿se puede mantener esa misma garantía —que el sistema
 nunca hable con la autoridad de un hecho verificado sobre algo que no lo
 es— sin exigir que un humano escriba la fuente de antemano?**
 
@@ -29,7 +29,7 @@ de este proyecto y se documenta en
 
 ## Principios de diseño (reglas propias del proyecto)
 
-Estas reglas son más estrictas que las de Magnus en el punto donde Embudo es
+Estas reglas son más estrictas que las de Magnus en el punto donde EMS es
 estructuralmente más arriesgado (memoria que se escribe sola), y heredan de
 Magnus donde ya se demostraron necesarias.
 
@@ -54,7 +54,7 @@ Magnus donde ya se demostraron necesarias.
    sin cambios de `configs/privacy.yaml` + `orchestration/privacy.py` de
    Magnus — ese diseño ya es correcto para este problema.
 6. **No hay sandboxing real todavía en Magnus para herramientas
-   `python`/`terminal` — Embudo no activa ejecución de herramientas
+   `python`/`terminal` — EMS no activa ejecución de herramientas
    arbitrarias hasta que exista un sandbox de verdad (contenedor + límites de
    recursos + red bloqueada), auditado como tal.** Es una lección directa del
    análisis de seguridad de Magnus: no repetir la promesa de aislamiento sin
@@ -66,22 +66,22 @@ Magnus donde ya se demostraron necesarias.
 
 ## Relación con MagnusAgent
 
-Embudo no es un fork de Magnus ni depende de él en tiempo de ejecución. Es un
+EMS no es un fork de Magnus ni depende de él en tiempo de ejecución. Es un
 proyecto separado, con su propio `pyproject.toml`, sus propias reglas de
 seguridad (más estrictas donde hace falta) y su propio ciclo de vida. Donde
 Magnus ya resolvió un problema general —enrutado por capacidades,
 recuperación híbrida, resiliencia de proveedores, permisos por intersección,
-egreso denegado por defecto— Embudo **porta el patrón, no necesariamente el
+egreso denegado por defecto— EMS **porta el patrón, no necesariamente el
 código tal cual**, evaluando en cada caso si conviene vendorizar el módulo o
 reimplementarlo con el modelo de datos propio. El detalle componente por
 componente está en
 [02-COMPONENTES-REUTILIZABLES.md](02-COMPONENTES-REUTILIZABLES.md).
 
-## Qué NO es Embudo
+## Qué NO es EMS
 
 - No es un sustituto de la wiki curada — para dominios de alto riesgo
   (médico, financiero, legal), una fuente verificada por humano seguirá
-  siendo preferible y Embudo debería poder consumirla como una fuente de
+  siendo preferible y EMS debería poder consumirla como una fuente de
   nivel máximo desde el primer día, no solo aprender de cero.
 - No es un oráculo de verdad absoluta ni pretende resolver qué es
   objetivamente cierto — resuelve **qué puede el sistema afirmar con qué
