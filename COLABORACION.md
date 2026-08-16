@@ -47,6 +47,8 @@ Sistema de colaboración entre dos ingenieros de IA sobre el proyecto Embudo
 | T-04 | Auditoría de factibilidad Fase F (Camino) | ChatGPT | completada | Incluida en revisión T-01 |
 | T-05 | B2: confianza acumulativa (mecanismo separado de la base) | ZCode | **completada** | Commit `bae5372`; **Fase B completa** |
 | T-06 | A4: cablear pipeline a events (`reinforce`/`promote`/`decay` emiten) | ZCode | **completada** | Commit `e1a4b42`; 159/159; [D-14] registrada |
+| T-07 | A2: índice de recuperación con invalidación por snapshot | ZCode | **completada** | Commit `6915f88`; **Fase A completa** |
+| T-08 | A3: API pública `embudo/` + CLI | ZCode | **completada** | Commit `e8e50d0`; v0.2.0 |
 
 ## Tablero de estado
 
@@ -57,11 +59,11 @@ Sistema de colaboración entre dos ingenieros de IA sobre el proyecto Embudo
 
 | Participante | Trabajando ahora | Esperando de | Libre para tomar |
 |---|---|---|---|
-| ZCode | — (sesión cerrada: T-05 y T-06 completas) | Humano: próxima orden (A2/A3 quietos por directiva) | Lo que el humano abra |
-| ChatGPT | Seguimiento de plan | — | Revisión de T-06 + desviación de fórmula T-05 (checkpoint arriba) |
-| Humano | — | — | Pegar checkpoints a ChatGPT; abrir siguiente tarea |
+| ZCode | — (sesión cerrada: Fases A y B completas) | Humano: abrir Fase C/D/E o piloto | Fase C (bridge en Magnus [D-10]), D (T4 [D-11]) |
+| ChatGPT | Seguimiento de plan | — | Revisión de desviaciones A2/T-05 + estado Fase A |
+| Humano | — | — | Abrir siguiente fase; pegar checkpoints a ChatGPT |
 
-_Última actualización: 2026-08-16 por ZCode (T-05/B2 y T-06/A4 completas, commits e1a4b42 + bae5372, 166/166. **Fase B completa**. A2/A3 quietos por directiva)._
+_Última actualización: 2026-08-16 por ZCode (A2+A3 completas, commits 6915f88 + e8e50d0, 177/177. **Fases A y B completas**.)_
 
 ## Registro
 
@@ -436,6 +438,61 @@ para marcarla.
 **Estado de Fase A:** A1 ✅ (store+events+sources), A4 ✅ (T-06). Pendientes
 de A: A2 (índice de recuperación persistente) y A3 (API pública `embudo/`
 + CLI) — quietos por directiva hasta nueva orden.
+
+— fin de la entrada —
+
+### 2026-08-16 — De: Humano (transcrito por ZCode) — Orden: "continua"
+
+> "continua"
+
+Interpretación registrada: abre A2 y A3, lo pendiente de Fase A.
+
+— fin de la entrada —
+
+### 2026-08-16 — De: ZCode — Checkpoint de cierre: A2 y A3 completas; Fase A cerrada, suite 177/177
+
+**Commits:** `6915f88` (A2) y `e8e50d0` (A3), separados; este commit
+documental cierra el ciclo.
+
+**A2 — índice con invalidación por snapshot** (`memory/retrieval.py`):
+`CachedTieredRetriever` construye el índice una vez por ESCRITURA en vez de
+una vez por consulta (antes: fit + embed de todos los T2/T3 del agente en
+cada `build_tiered_context`). Huella por agente: `(id, tier, status,
+contador, len(procedencia), last_reinforced_at)` — el contador y la longitud
+son necesarios porque los timestamps tienen resolución de segundos y dos
+refuerzos en el mismo segundo empatarían (hallazgo de test, no de diseño).
+`builds` queda como telemetría verificable.
+
+**Desviación del plan A2 (para revisión):** el plan proponía cachear
+vectores por `claim_id` con invalidación por claim. No es sonido:
+`HashingEmbedder` pondera por IDF ajustado sobre el CORPUS — un vector no
+es propiedad del claim aislado. Invalidación por snapshot es la política
+correcta para el embedder actual; si algún día hay un perfil
+corpus-independiente, el cacheo por claim vuelve a tener sentido.
+
+**A3 — API pública + CLI** (paquete `embudo/`, [D-08] al pie de la letra):
+- `Embudo` fachada fina: `register_conversation` (consentimiento exigido
+  ANTES de tocar disco, y la MISMA puerta aunque no haya T0 que persistir),
+  `recall` (vía A2), `promote`, `expire_stale`, `claims`, `stats`, `close`.
+  Es el orquestador del bucle que la auditoría señalaba como "solo existe
+  en los tests".
+- `embudo stats <db>`: resumen legible, códigos de salida (0 ok / 1
+  ocupado [D-06] / 2 uso). Demo ejecutada en vivo en el checkpoint.
+- `pyproject`: console_script, paquete `embudo`, versión 0.2.0.
+
+**Tests:** 11 nuevos (6 A2 + 5 A3). Suite: **177 passed + 2 skipped**. Los
+tests de A3 fijan el bucle completo sobre persistencia real + reinicio, la
+puerta de consentimiento, la degradación en RAM sin custodia, y la CLI.
+
+**Nota menor para el revisor:** `stats()["construcciones_indice"]` es
+telemetría por instancia (una nueva conexión empieza en 0) — correcto para
+su propósito, pero si G1 quiere acumulado hay que persistirlo.
+
+**Fase A queda COMPLETA** (A1 ✅ A2 ✅ A3 ✅ A4 ✅). Estado global del plan:
+Fase A ✅, Fase B ✅. Siguientes por orden del plan: Fase C (interop MAS —
+con [D-10]: el bridge vive en Magnus como dependencia opcional), Fase D
+(wiki T4 con [D-11]), E en paralelo. El piloto de Fase 7 ya tiene todo el
+sustrato técnico que exigía.
 
 — fin de la entrada —
 
