@@ -6,7 +6,7 @@ Magnus a empezar `citation_evaluator.py` sin LLM-as-judge
 el principio introduce el mismo riesgo que se está tratando de evitar:
 alucinar candidatos que no se dijeron.
 
-Solo se extrae de turnos del usuario (`role == "user"`) con uno de tres
+Solo se extrae de turnos del usuario (`role == "user"`) con uno de cuatro
 marcadores explícitos, y nunca de preguntas:
 
   1. **Corrección directa** — la frase empieza con una marca de corrección
@@ -15,7 +15,13 @@ marcadores explícitos, y nunca de preguntas:
      lista cerrada ("sí", "correcto", "así es", "exacto", ...) que responde a
      una AFIRMACIÓN previa del asistente (no a una pregunta). El candidato es
      el enunciado del asistente que el usuario acaba de confirmar.
-  3. **Declaración en primera persona** — la frase empieza con un verbo de
+  3. **Cambio de estado** — la frase empieza con "ya no", "dejé de" o
+     "ahora" (Fase B de `docs/04-PLAN-MEJORAS.md`): es el ejemplo canónico de
+     `docs/01-MEMORIA-NIVELADA.md` ("ya no como carne" tras "como carne
+     todos los días"), que antes no producía candidato. "ahora" solo cuenta
+     si lo que sigue es una declaración reconocible — "ahora bien, eso es
+     otro tema" es discurso, no un cambio declarado.
+  4. **Declaración en primera persona** — la frase empieza con un verbo de
      primera persona de una lista cerrada ("soy", "tengo", "vivo en",
      "prefiero", "me gusta", "como", ...).
 
@@ -58,6 +64,15 @@ _MARCADORES_PRIMERA_PERSONA = (
     "prefiero", "me gusta", "odio", "amo", "quiero", "como", "necesito",
 )
 
+#: Marcadores de cambio de estado (Fase B), en forma NORMALIZADA (sin
+#: acentos): "dejé de" → "deje de", "dejó de" → "dejo de". Los de cesación
+#: califican solos — "ya no como carne" es un cambio declarado pase lo que
+#: siga. "ahora" es más débil como marcador discursivo ("ahora bien...") y
+#: por eso exige además una declaración reconocible tras él (ver
+#: `_candidato_cambio`).
+_MARCADORES_CESACION = ("ya no", "deje de", "dejo de")
+_MARCADORES_CAMBIO = _MARCADORES_CESACION + ("ahora",)
+
 #: Formas normalizadas (sin acentos, sin puntuación) — la comparación en
 #: `_es_confirmacion` normaliza el turno de la misma manera antes de comparar.
 _CONFIRMACIONES = {
@@ -67,6 +82,10 @@ _CONFIRMACIONES = {
 
 CONFIDENCE_CORRECCION = 0.60
 CONFIDENCE_CONFIRMACION = 0.70
+#: Un cambio de estado declarado ("ya no...", "dejé de...") es una corrección
+#: del mundo por parte del usuario — misma clase epistémica que una corrección
+#: directa, no una declaración cualquiera.
+CONFIDENCE_CAMBIO = 0.60
 CONFIDENCE_PRIMERA_PERSONA = 0.50
 
 _STOPWORDS_SUJETO = {
@@ -80,6 +99,24 @@ def _normalizar_sin_acentos(s: str) -> str:
     import unicodedata
     t = "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
     return t.lower().strip()
+
+
+def _empieza_con(o_norm: str, marcadores: tuple[str, ...]) -> bool:
+    """¿`o_norm` (YA normalizado) empieza con alguno de los marcadores,
+    como palabra completa?"""
+    return any(o_norm == m or o_norm.startswith(m + " ") for m in marcadores)
+
+
+def _strip_cambio(o_norm: str) -> str:
+    """Quita hasta dos prefijos de cambio de estado ("ahora ya no como
+    carne" → "como carne"). Solo sobre texto YA normalizado; devuelve el
+    texto sin cambios si no hay prefijo."""
+    for _ in range(2):
+        for marcador in _MARCADORES_CAMBIO:
+            if o_norm == marcador or o_norm.startswith(marcador + " "):
+                o_norm = o_norm[len(marcador):].strip()
+                break
+    return o_norm
 
 
 def _es_pregunta(oracion: str) -> bool:
@@ -115,8 +152,13 @@ def _sujeto_para_texto(texto: str) -> str:
     ("santo"/"santiago" en este caso vienen del resto tras el marcador) y la
     corrección puede encontrar y suceder al claim original en vez de crear
     uno sin relación.
+
+    Los prefijos de cambio de estado también se quitan antes de buscar el
+    marcador: "en realidad, ya no como carne" debe dar subject "carne", no
+    "ya" — mismo subject que "como carne todos los días" para que la
+    sucesión los encuentre.
     """
-    o_norm = _normalizar_sin_acentos(texto)
+    o_norm = _strip_cambio(_normalizar_sin_acentos(texto))
     cuerpo = o_norm[3:] if o_norm.startswith("no ") else o_norm
     for marcador in _MARCADORES_PRIMERA_PERSONA:
         if cuerpo == marcador or cuerpo.startswith(marcador + " "):
@@ -134,6 +176,25 @@ def _candidato_correccion(oracion: str) -> tuple[str, str] | None:
                 return None
             return _sujeto_para_texto(resto), resto
     return None
+
+
+def _candidato_cambio(oracion: str) -> tuple[str, str] | None:
+    """Candidato por cambio de estado declarado (Fase B): "ya no como
+    carne", "dejé de fumar", "ahora vivo en Santiago".
+
+    El texto del claim conserva la oración COMPLETA (el "ya no" es parte del
+    significado); el subject se deriva del resto tras el prefijo, alineado
+    con la declaración original que corrige. "ahora" solo califica si lo que
+    sigue es una declaración reconocible — ver `_MARCADORES_CESACION`.
+    """
+    o_norm = _normalizar_sin_acentos(oracion)
+    resto = _strip_cambio(o_norm)
+    if resto == o_norm or not resto:
+        return None
+    es_cesacion = _empieza_con(o_norm, _MARCADORES_CESACION)
+    if not es_cesacion and _candidato_primera_persona(resto) is None:
+        return None
+    return _sujeto_para_texto(resto), oracion.strip()
 
 
 def _candidato_primera_persona(oracion: str) -> tuple[str, str] | None:
@@ -193,6 +254,16 @@ def extract_candidates(
                         source_conversation_id=record.id,
                         confidence=CONFIDENCE_CONFIRMACION,
                         decay_half_life_days=decay_half_life_days))
+                continue
+
+            cambio = _candidato_cambio(oracion)
+            if cambio is not None:
+                sujeto, texto = cambio
+                candidatos.append(MemoryClaim.new_candidate(
+                    agent_id=record.agent_id, subject=sujeto, text=texto,
+                    source_conversation_id=record.id,
+                    confidence=CONFIDENCE_CAMBIO,
+                    decay_half_life_days=decay_half_life_days))
                 continue
 
             primera_persona = _candidato_primera_persona(oracion)

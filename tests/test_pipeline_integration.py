@@ -92,3 +92,34 @@ def test_una_contradiccion_posterior_sucede_al_claim_promovido_sin_borrarlo(tmp_
     # sin consentimiento no se hubiera podido registrar nada de esto
     conversaciones = t0_store.read_all()
     assert all(c.consent.granted for c in conversaciones)
+
+
+def test_ejemplo_canonico_de_docs01_ya_no_como_carne_end_to_end(tmp_path):
+    """El ejemplo LITERAL de `docs/01-MEMORIA-NIVELADA.md` ('ya no como
+    carne' tras 'como carne todos los días'), con el claim original aún en
+    T1 — antes de la Fase B este circuito no existía: 'ya no como carne' ni
+    siquiera producía candidato, y una negación de un T1 reforzaba a su
+    opuesto. Ahora: extracción → contradicción → sucesión sin borrado."""
+    t0_store = JsonlConversationStore(tmp_path)
+    claim_store = InMemoryClaimStore()
+
+    turns = [Turn("user", "como carne todos los dias", _TS)]
+    record = record_conversation(
+        t0_store, agent_id="a1", user_id="user-1", turns=turns, consent=_consent())
+    for candidato in extract_candidates(record):
+        reinforce_or_create(candidato, claim_store)
+
+    [original] = claim_store.active(agent_id="a1")
+    assert original.tier == Tier.T1
+
+    turns = [Turn("user", "ya no como carne", _TS)]
+    record = record_conversation(
+        t0_store, agent_id="a1", user_id="user-1", turns=turns, consent=_consent())
+    [cambio] = extract_candidates(record)
+    resultado = reinforce_or_create(cambio, claim_store)
+
+    assert original.status.value == "superseded"
+    assert original.superseded_by == resultado.id
+    assert resultado.supersedes == original.id
+    assert resultado.tier == Tier.T1, "la sucesión no hereda autoridad"
+    assert claim_store.get(original.id) is original, "el reemplazado conserva proveniencia"

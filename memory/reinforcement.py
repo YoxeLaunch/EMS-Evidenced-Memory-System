@@ -2,8 +2,11 @@
 
 Orquesta lo que un candidato nuevo hace contra el store de claims:
 
-  1. ¿Contradice explícitamente un T2/T3 activo del mismo subject? → sucesión
-     (`supersedes`/`superseded_by`), nunca sobrescritura.
+  1. ¿Contradice explícitamente un claim ACTIVO del mismo subject (T1, T2 o
+     T3)? → sucesión (`supersedes`/`superseded_by`), nunca sobrescritura.
+     Desde la Fase B (`docs/04-PLAN-MEJORAS.md`) también participan los T1:
+     sin ellos, una negación temprana matchea por embedding y REFUERZA al
+     claim que contradice — exactamente el eco que el sistema evita.
   2. Si no, ¿coincide con un claim existente (`memory/dedup.py`)? → refuerzo:
      `reinforcement_count += 1`, y si cruza el umbral, asciende a T2.
   3. Si no coincide con nada → es un candidato nuevo, se guarda tal cual.
@@ -42,16 +45,59 @@ from memory.store import InMemoryClaimStore
 #: Nº de refuerzos en conversaciones distintas para ascender T1 → T2.
 DEFAULT_REINFORCEMENT_THRESHOLD = 3
 
+#: Marcadores discursivos de cambio (texto normalizado, sin acentos) que se
+#: quitan antes de comparar negaciones. Solo la parte DISCURSIVA: "ya no como
+#: carne" deja "no como carne" (el "no" es el negador, se conserva), y "dejo
+#: de fumar" deja "fumar". Sin estos prefijos, "ya no como carne" no calzaría
+#: con ningún patrón de negación literal.
+_PREFIJOS_CAMBIO = ("ya", "ahora", "deje de", "dejo de")
+
+
+def _sin_prefijo_cambio(t: str) -> str:
+    """Quita prefijos discursivos de cambio ("ahora ya no como carne" →
+    "no como carne") de un texto YA normalizado por `normalize_text`."""
+    for _ in range(3):
+        for prefijo in _PREFIJOS_CAMBIO:
+            if t == prefijo or t.startswith(prefijo + " "):
+                t = t[len(prefijo):].strip()
+                break
+    return t
+
+
+def _es_negacion_de(a: str, b: str) -> bool:
+    """¿`a` es la negación explícita de `b`?
+
+    Caso exacto: `a == "no " + b` ("no como carne" niega "como carne").
+
+    Caso prefijo: `a` niega un PREFIJO POR PALABRA de `b` — "no como carne"
+    también niega "como carne todos los dias", porque al corregir el usuario
+    no repite el detalle completo. Es el ejemplo canónico de `docs/01`
+    ('ya no como carne' tras 'como carne todos los días'). El corte por
+    palabra (nunca a mitad de palabra) mantiene la comparación estructural.
+    """
+    if not b or not a.startswith("no ") or len(a) <= 3:
+        return False
+    if a == f"no {b}":
+        return True
+    resto = a[3:]
+    return bool(resto) and b.startswith(resto) and (
+        len(b) == len(resto) or b[len(resto)] == " "
+    )
+
 
 def detect_contradiction(candidate: MemoryClaim, store: InMemoryClaimStore) -> MemoryClaim | None:
-    """Un T2/T3 activo del mismo subject cuyo texto es la negación directa
-    del candidato (o viceversa) — contradicción EXPLÍCITA, no inferida."""
-    activos = [c for c in store.by_subject(candidate.agent_id, candidate.subject)
-               if c.tier in (Tier.T2, Tier.T3)]
-    cand_norm = normalize_text(candidate.text)
+    """Un claim ACTIVO (T1/T2/T3) del mismo subject cuyo texto es la negación
+    directa del candidato (o viceversa) — contradicción EXPLÍCITA, no inferida.
+
+    La sucesión resultante no infla autoridad: el candidato entra como T1
+    (no hereda el tier del reemplazado) y el reemplazado baja a
+    `superseded` conservando proveniencia.
+    """
+    activos = store.by_subject(candidate.agent_id, candidate.subject)
+    cand_norm = _sin_prefijo_cambio(normalize_text(candidate.text))
     for existente in activos:
-        exist_norm = normalize_text(existente.text)
-        if cand_norm == f"no {exist_norm}" or exist_norm == f"no {cand_norm}":
+        exist_norm = _sin_prefijo_cambio(normalize_text(existente.text))
+        if _es_negacion_de(cand_norm, exist_norm) or _es_negacion_de(exist_norm, cand_norm):
             return existente
     return None
 

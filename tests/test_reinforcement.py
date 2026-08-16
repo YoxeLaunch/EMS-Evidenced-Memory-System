@@ -80,13 +80,61 @@ def test_dos_refuerzos_no_alcanzan_para_ascender():
 def test_contradiccion_explicita_genera_sucesion_trazable():
     store = InMemoryClaimStore()
     viejo = _candidato("dieta", "como carne todos los dias", source="conv-1")
-    viejo.tier = Tier.T2  # solo T2/T3 activos participan en la detección
+    viejo.tier = Tier.T2
     store.add(viejo)
 
     contradicho = detect_contradiction(
         _candidato("dieta", "no como carne todos los dias", source="conv-2"), store)
 
     assert contradicho is viejo
+
+
+def test_negar_un_t1_produce_sucesion_no_refuerzo():
+    """Fase B (docs/04): la grieta que cierra este test — sin T1 en la
+    detección de contradicción, 'no como carne' matchea por embedding
+    (coseno ≈ 1.0, 'no' es stopword) y REFUERZA al claim que contradice."""
+    store = InMemoryClaimStore()
+    viejo = _candidato("dieta", "como carne todos los dias", source="conv-1")  # T1
+    store.add(viejo)
+
+    resultado = reinforce_or_create(
+        _candidato("dieta", "no como carne todos los dias", source="conv-2"), store)
+
+    assert resultado.supersedes == viejo.id
+    assert viejo.status == Status.SUPERSEDED
+    assert resultado.reinforcement_count == 1, "es un claim nuevo, no un refuerzo"
+    assert resultado.tier == Tier.T1, "la sucesión no hereda autoridad"
+
+
+def test_ya_no_como_carne_niega_al_claim_con_detalle_por_prefijo():
+    """El ejemplo LITERAL de docs/01: al corregir, el usuario no repite el
+    detalle completo — 'ya no como carne' niega 'como carne todos los dias'
+    por prefijo por palabra."""
+    store = InMemoryClaimStore()
+    viejo = _candidato("carne", "como carne todos los dias", source="conv-1")
+    viejo.tier = Tier.T2
+    store.add(viejo)
+
+    resultado = reinforce_or_create(
+        _candidato("carne", "ya no como carne", source="conv-2"), store)
+
+    assert resultado.supersedes == viejo.id
+    assert viejo.status == Status.SUPERSEDED
+
+
+def test_reafirmacion_tras_un_cambio_tambien_genera_sucesion():
+    """Dirección inversa: 'como carne' tras 'ya no como carne' — la
+    reafirmación sucede a la cesación, no la refuerza."""
+    store = InMemoryClaimStore()
+    viejo = _candidato("carne", "ya no como carne", source="conv-1")
+    viejo.tier = Tier.T2
+    store.add(viejo)
+
+    resultado = reinforce_or_create(
+        _candidato("carne", "como carne", source="conv-2"), store)
+
+    assert resultado.supersedes == viejo.id
+    assert viejo.status == Status.SUPERSEDED
 
 
 def test_procesar_un_candidato_contradictorio_marca_sucesion_sin_borrar_el_viejo():

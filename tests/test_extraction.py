@@ -78,6 +78,44 @@ def test_confirmacion_a_una_afirmacion_usa_el_texto_del_asistente():
     assert c.confidence > 0
 
 
+# -- cambio de estado (Fase B — ejemplo canónico de docs/01) ----------------------------
+def test_ya_no_produce_candidato_con_el_mismo_subject_que_la_declaracion_original():
+    """'ya no como carne' tras 'como carne todos los días' (docs/01): el
+    candidato conserva la oración completa y alinea el subject con la
+    declaración original para que la sucesión los encuentre."""
+    record = _record([("user", "ya no como carne")])
+    [c] = extract_candidates(record)
+    assert c.text == "ya no como carne"
+    assert c.subject == "carne"
+    assert c.tier == Tier.T1
+    assert c.confidence > 0.5, "un cambio declarado pesa más que una declaración suelta"
+
+
+def test_dejo_de_produce_candidato():
+    record = _record([("user", "dejé de fumar")])
+    [c] = extract_candidates(record)
+    assert c.text == "dejé de fumar"
+    assert c.tier == Tier.T1
+
+
+def test_ahora_solo_cuenta_si_lo_que_sigue_es_una_declaracion():
+    record = _record([("user", "ahora vivo en Santiago")])
+    [c] = extract_candidates(record)
+    assert c.subject == "santiago"
+
+    record_discurso = _record([("user", "ahora bien, eso es otro tema")])
+    assert extract_candidates(record_discurso) == []
+
+
+def test_correccion_con_cambio_embebido_alinea_el_subject():
+    """'en realidad, ya no como carne': el marcador de corrección y el de
+    cambio se combinan sin romper la alineación de subject."""
+    record = _record([("user", "en realidad, ya no como carne")])
+    [c] = extract_candidates(record)
+    assert c.text == "ya no como carne"
+    assert c.subject == "carne"
+
+
 # -- declaración en primera persona --------------------------------------------------------
 def test_declaracion_en_primera_persona_produce_un_candidato():
     record = _record([("user", "no como carne los martes")])
