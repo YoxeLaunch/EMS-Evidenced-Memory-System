@@ -42,6 +42,8 @@ Conversation (T0) ➔ Extracted Candidate (T1) ➔ Reinforced Evidence (T2) ➔ 
 - [Project Status](#-project-status)
 - [Technical Documentation](#-technical-documentation)
 - [Positioning](#-positioning)
+- [Author & Credits](#-author--credits)
+- [License](#-license)
 
 ---
 
@@ -314,6 +316,22 @@ EMS is not a chatbot memory feature. It is a **Memory Governance System for AI A
 
 ---
 
+## ✒️ Author & Credits
+
+This system was conceived and developed by:
+* **YoxeLaunch** — Architect, Lead Developer & Original Creator
+* GitHub: [@YoxeLaunch](https://github.com/YoxeLaunch)
+
+Companion project in the **Magnus Agent Engine (MAS)** ecosystem ([`YoxeLaunch/MagnusAgentSpecification`](https://github.com/YoxeLaunch/MagnusAgentSpecification)).
+
+## 📜 License
+
+Distributed under the **Apache-2.0 License**. See the [LICENSE](LICENSE) file for details.
+
+---
+
+<br />
 <div align="center">
-  <sub>Built for agents that learn from experience without mistaking repetition for truth.</sub>
+  <p><strong>Built for total sovereignty ⚜️ — Designed by YoxeLaunch</strong></p>
+  <sub>© 2026 EMS Project · Sovereign by design · Local-First</sub>
 </div>
