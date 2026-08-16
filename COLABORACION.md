@@ -43,9 +43,10 @@ Sistema de colaboración entre dos ingenieros de IA sobre el proyecto Embudo
 |---|---|---|---|---|
 | T-01 | Revisar `docs/04-PLAN-MEJORAS.md`: responder P-01..P-08, proponer ALT | ChatGPT | completada | Revisión registrada 2026-08-16 |
 | T-02 | Decisión final sobre P-01..P-08 | Humano | **completada** | [D-06]..[D-13] registradas |
-| T-03 | Fase A1 `SqliteClaimStore` + events + `conversation_sources` | ZCode | **en marcha** | UTC, schema_version, migraciones, tests de reinicio/custodia |
+| T-03 | Fase A1 `SqliteClaimStore` + events + `conversation_sources` | ZCode | **completada** | Commit `b81c15a`; 149/149 |
 | T-04 | Auditoría de factibilidad Fase F (Camino) | ChatGPT | completada | Incluida en revisión T-01 |
-| T-05 | B2: confianza acumulativa (mecanismo separado de la base) | ZCode | pendiente | Independiente de [D-09]; sin marcar Fase B completa hasta cerrar |
+| T-05 | B2: confianza acumulativa (mecanismo separado de la base) | ZCode | **completada** | Commit `bae5372`; **Fase B completa** |
+| T-06 | A4: cablear pipeline a events (`reinforce`/`promote`/`decay` emiten) | ZCode | **completada** | Commit `e1a4b42`; 159/159; [D-14] registrada |
 
 ## Tablero de estado
 
@@ -56,11 +57,11 @@ Sistema de colaboración entre dos ingenieros de IA sobre el proyecto Embudo
 
 | Participante | Trabajando ahora | Esperando de | Libre para tomar |
 |---|---|---|---|
-| ZCode | T-03: A1 SqliteClaimStore + events + conversation_sources | — | T-05 (B2) tras T-03 |
-| ChatGPT | Seguimiento de plan | — | Revisión de A1 cuando exista |
-| Humano | — | — | — (commit Fase B ya ejecutado; T-02 decidida) |
+| ZCode | — (sesión cerrada: T-05 y T-06 completas) | Humano: próxima orden (A2/A3 quietos por directiva) | Lo que el humano abra |
+| ChatGPT | Seguimiento de plan | — | Revisión de T-06 + desviación de fórmula T-05 (checkpoint arriba) |
+| Humano | — | — | Pegar checkpoints a ChatGPT; abrir siguiente tarea |
 
-_Última actualización: 2026-08-16 por ZCode (T-02 decidida → [D-06..D-13]; T-03 en marcha; B2 = T-05 pendiente)._
+_Última actualización: 2026-08-16 por ZCode (T-05/B2 y T-06/A4 completas, commits e1a4b42 + bae5372, 166/166. **Fase B completa**. A2/A3 quietos por directiva)._
 
 ## Registro
 
@@ -262,6 +263,179 @@ Resolución numérica (mapeo P → D, contenido íntegro en la entrada T-01):
 Las [ALT-01..03] quedan aceptadas por ZCode (entrada anterior) sin reserva.
 T-02 se marca completada; T-03 (A1) desbloqueada y en marcha. B2 queda como
 tarea pendiente independiente de [D-09] (se añade T-05 al tablero).
+
+— fin de la entrada —
+
+### 2026-08-16 — De: ZCode — Checkpoint de cierre: A1 completa (T-03), suite 149/149
+
+**Commits (separados como pidió el humano):**
+- `44b7c9c` docs: plan de mejoras v0.2 y log de colaboración (D-06..D-13).
+- `b81c15a` feat(store): SqliteClaimStore with transactional custody chain.
+
+**Qué se implementó** (`memory/sqlite_store.py`, ~350 líneas):
+
+1. **Contrato completo** de `InMemoryClaimStore` (add/get/all/
+   active/by_subject) — certificado por la suite de contrato, que ahora
+   corre sobre AMBOS backends (+8 tests × 2).
+2. **Events transaccionales [D-07]**: `add(claim, event_type=...,
+   conversation_id=..., event_payload=...)` escribe claim y evento en la
+   MISMA transacción; el payload se serializa antes de abrir la transacción,
+   así un error del llamante tampoco deja escrituras parciales. Tipos
+   cerrados (`extraction|reinforcement|promotion|supersession|expiration|
+   wiki_sync`, los de `orchestration/audit.py:120-128`) — un evento mal
+   nombrado se rechaza, no rompe la cadena en silencio.
+3. **`conversation_sources` [ALT-02]**: metadatos T0 idempotentes con hash
+   opcional según política; re-registrar completa el hash sin duplicar.
+4. **Single-writer [D-06]**: WAL, `BEGIN IMMEDIATE`, `busy_timeout`
+   configurable (250 ms por defecto) y `StoreLockedError` con mensaje que
+   explica el contrato — testeado con un segundo writer real tomando el
+   lock, verificando que el store sigue operativo tras liberarlo.
+5. **Esquema versionado**: `PRAGMA user_version` + `_MIGRACIONES` (una
+   transacción por versión, incluye el bump). DB "del futuro" se rechaza
+   con `StoreVersionError`. Tests: creación en versión actual, migración
+   desde v0 sin perder datos, rechazo de v+1.
+6. **Tiempo**: timestamps UTC ISO-8601; el orden autoritativo de eventos es
+   `seq` (AUTOINCREMENT), no el reloj (riesgo "integridad temporal" de la
+   revisión T-01).
+
+**Tests nuevos:** 18 (10 en `tests/test_sqlite_store.py` + contrato ×2
+backends). Suite total: **149 passed + 2 skipped**. Cubren el criterio de
+hecho de A1: matar el proceso, reabrir, y la cadena T0 → extracción →
+refuerzo → promoción se reconstruye evento a evento.
+
+**Notas de diseño para el revisor (ChatGPT, próxima revisión):**
+- El upsert de claims actualiza solo campos mutables (tier, confidence,
+  refuerzo, sucesión, status); `first_seen_at` y la identidad (agent/
+  subject/text) son inmutables en UPDATE — coherente con append-only.
+- `get()`/`all()` devuelven copias frescas (no identidad de objeto): el
+  patrón del pipeline (leer → mutar → re-añadir) funciona igual, pero si
+  algún llamante future cachea referencias, debe saber que son snapshots.
+- A4 (cablear el pipeline a los eventos) sigue pendiente: hoy los eventos
+  los emite el llamante vía `add(..., event_type=...)`; el wiring de
+  `reinforce_or_create`/`promote_to_t3`/`decay` es el siguiente paso natural
+  (T-06 propuesta).
+
+**Tablero:** T-03 completada. Próximo: T-05 (B2, mecanismo de confianza
+acumulativa separado de la base [D-09]) o T-06 (A4, wiring de eventos al
+pipeline) — orden a elección del humano. Este checkpoint queda SIN commitear
+a propósito: irá en el próximo commit documental, para no mezclar docs con
+código (instrucción del humano 2026-08-16).
+
+— fin de la entrada —
+
+### 2026-08-16 — De: Humano (transcrito por ZCode) — Directiva T-06 antes que T-05, con dos requisitos de custodia
+
+> "A1 está bien encaminada y la separación de commits es correcta. Recomiendo
+> T-06 antes que T-05, pero con dos requisitos de custodia en ese mismo
+> trabajo: cada evento automático debe llevar un payload canónico suficiente
+> para reconstruir la transición (estado anterior/nuevo, contador, tier,
+> source_conversation_ids, relaciones de sucesión y motivo/evaluador cuando
+> aplique). Añadir en una migración v2 una clave foránea nullable
+> events.claim_id → claims.id (y decidir si conversation_id debe validarse
+> contra conversation_sources). Luego T-06 debe probar el flujo real —sin
+> que el llamante pase event_type manualmente— para extracción, refuerzo,
+> sucesión, promoción y expiración. Tras eso, implementar T-05. No tocaría
+> A2/A3 todavía: A4 convierte la persistencia ya construida en evidencia
+> real y reduce el riesgo del piloto."
+
+— fin de la entrada —
+
+### 2026-08-16 — De: ZCode — Checkpoint de cierre: T-06/A4 completa, suite 159/159
+
+**Commit:** `e1a4b42` `feat(memory): pipeline emits its own custody chain
+(T-06/A4)` (8 archivos, +465/−61).
+
+**Requisito 1 — payload canónico** (`memory/events.py`):
+`payload_transicion(antes, despues, ...)` genera el formato único:
+`estado/tier/contador` anterior y nuevo, `conversaciones_origen`,
+`conversacion_disparadora`, `sucesion` (solo si hay punteros), y
+`motivo`/`evaluador` cuando aplican (promoción). Los snapshots "antes" usan
+copia con lista propia — `dataclasses.replace` es shallow y el pipeline
+muta `source_conversation_ids` in place; sin copiarla, el "anterior" se
+contaminaría con el "posterior". Extracción = `antes=None`.
+
+**Requisito 2 — migración v2 con FK** (`memory/sqlite_store.py`):
+rebuild de `events` con `claim_id TEXT REFERENCES claims(id)` (SQLite no
+tiene ADD CONSTRAINT). Con FK ON, la copia de filas viejas RECHAZA
+huérfanos — la migración falla en voz alta, que es el comportamiento
+buscado. **Decisión [D-14]: `conversation_id` NO se valida contra
+`conversation_sources`** — los metadatos de conversación son best-effort
+(registrables después, ausentes en importaciones) y la purga de privacidad
+(G2) debe poder borrar fuentes T0 sin romper la cadena de custodia, que
+lleva ids pero nunca contenido. `claim_id` sí es estructural: los claims no
+se borran jamás. Tests: FK rechaza claim fantasma, acepta NULL, no valida
+conversación no registrada ([D-14]), migración v1→v2 preserva eventos y la
+secuencia AUTOINCREMENT continúa.
+
+**Wiring del pipeline** — detección por capacidad (`CustodyStore`,
+Protocol runtime_checkable): `InMemoryClaimStore` sigue funcionando sin
+eventos (compatibilidad total, testeado); `SqliteClaimStore` recibe:
+- `reinforce_or_create`: extracción (claim nuevo, con puntero `supersedes`
+  fijado ANTES del add para que el payload nazca documentando la relación),
+  refuerzo (incluido revival: `estado_anterior="expired"`), sucesión (desde
+  `supersede`, con kwarg `conversacion` nuevo retrocompatible).
+- `promote_to_t3`: promoción con `motivo`, `evaluador` (nombre de clase),
+  `confirmacion_humana`.
+- `expire_stale_claims`: expiración con `confianza_efectiva` y `umbral` —
+  la cadena explica POR QUÉ caducó.
+- Sin transición no hay evento: repetición intra-conversación y promoción
+  rechazada no generan nada (testeado ambos).
+
+**Fix lateral incluido:** `_t3_contradictorio` (`memory/promotion.py`)
+seguía con la negación exacta vieja — el gate de promoción podía discrepar
+de `detect_contradiction` sobre el mismo par de claims. La semántica de
+negación (`es_negacion_de`, `sin_prefijo_discurso`) pasó a
+`memory/claims.py` como compartida; ambos consumidores ahora usan la misma.
+
+**Tests:** 10 nuevos (6 de flujo real en `tests/test_custodia_pipeline.py`
+— el ciclo completo `extraction → reinforcement ×2 → promotion →
+expiration` se verifica evento a evento sin un solo `event_type` manual —
+más 4 de FK/migración). Suite: **159 passed + 2 skipped**.
+
+**Hallazgo menor para el revisor:** el bug del puntero tardío (extraction
+sin `sucesion`) se detectó por test, no por diseño — señal de que el
+requerimiento "payload suficiente para reconstruir" está siendo verificado
+de verdad.
+
+**Pendiente:** T-05 (B2) según directiva ("en paralelo o inmediatamente
+después"). A2/A3 quietos por directiva. Este checkpoint sin commitear —
+próximo commit documental.
+
+— fin de la entrada —
+
+### 2026-08-16 — De: ZCode — Checkpoint de cierre: T-05/B2 completa; Fase B cerrada, suite 166/166
+
+**Commit:** `bae5372` `feat(memory): accumulated confidence derived from
+evidence (B2/T-05)` (`memory/confidence.py` + 7 tests).
+
+**Qué es:** `accumulated_confidence(claim, now=...)` — confianza DERIVADA
+de la evidencia acumulada, según [D-09] al pie de la letra: separada de la
+base (llamarla no muta `claim.confidence`, testeado), calculada desde los
+conteos brutos que el claim ya guarda, reusando el factor temporal de
+`decay` (misma vida media — no hay una segunda noción de tiempo), y **no es
+gate**: hay test estructural que fija que `memory/promotion.py` no la
+consume. Su consumidor es telemetría (G1) y consulta.
+
+**Desviación documentada del plan (gana el argumento, no el autor):** la
+fórmula del plan B2 tenía dos términos — `w1·log(1+refuerzos_extra)` y
+`w2·diversidad_conversaciones`. Hallazgo de implementación: hoy son LA
+MISMA señal — el refuerzo solo cuenta en conversación nueva y el append del
+id siempre va emparejado con el incremento del contador, así que
+`reinforcement_count == len(source_conversation_ids)` para todo claim que
+pasó por el pipeline. Dos términos sumarían dos veces lo mismo. Implementado
+con `W_DIVERSIDAD = 0.0` como hook explícito (testeado que funciona al
+activarlo), para cuando el modelo distinga confirmación explícita de
+repetición — señales que hoy no están separadas. Si el revisor prefiere la
+fórmula literal del plan con dos términos activos, que lo argumente en
+revisión; la doble contabilidad me parece el lado incorrecto.
+
+**Fase B queda COMPLETA** (B1 contradicción T1 + B1b marcadores/prefijo +
+B3 canónicos + B2 confianza derivada), como condición que el humano puso
+para marcarla.
+
+**Estado de Fase A:** A1 ✅ (store+events+sources), A4 ✅ (T-06). Pendientes
+de A: A2 (índice de recuperación persistente) y A3 (API pública `embudo/`
++ CLI) — quietos por directiva hasta nueva orden.
 
 — fin de la entrada —
 
