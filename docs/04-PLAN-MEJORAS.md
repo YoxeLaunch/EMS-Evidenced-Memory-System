@@ -1,13 +1,15 @@
 ---
-titulo: "Plan de Mejoras — Embudo v0.2"
-tipo: plan de implementación
-estado: borrador para revisión (preguntas P-01..P-08 abiertas)
+titulo: "Plan de Mejoras — EMS (Evidenced Memory System) v0.2"
+tipo: diseno_tecnico
+estado: propuesto_para_revision
 fecha: 2026-08-16
 redactado_por: ZCode (agente de implementación)
 revisado_por: pendiente — ChatGPT (contraparte de diseño) + decisión humana final
+padre: docs/00-VISION-Y-ARQUITECTURA.md
+hermano: docs/03-ROADMAP.md
 ---
 
-# Plan de Mejoras — Embudo
+# Plan de Mejoras — EMS (Evidenced Memory System)
 
 ## 0. Cómo revisar este documento
 

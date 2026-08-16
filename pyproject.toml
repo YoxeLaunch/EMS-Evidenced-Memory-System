@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "embudo"
+name = "ems-memory"
 version = "0.2.0"
-description = "Memoria nivelada para agentes que aprenden de sus propias conversaciones"
+description = "EMS — Sistema de memoria nivelada con procedencia verificable para agentes de IA"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -14,7 +14,8 @@ dependencies = [
 ]
 
 [project.scripts]
-embudo = "embudo.cli:main"
+ems = "ems.cli:main"
+embudo = "ems.cli:main"
 
 [project.optional-dependencies]
 # Adaptadores de proveedor remoto: opcionales a propósito, igual que en
@@ -27,7 +28,7 @@ dev = [
 
 [tool.setuptools]
 packages = [
-    "embudo",
+    "ems",
     "providers",
     "rag",
     "orchestration",

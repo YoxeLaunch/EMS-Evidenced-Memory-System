@@ -1,7 +1,7 @@
 """Puerto canónico `LLMProvider` — el modelo de IA es intercambiable.
 
 Vendorizado de MagnusAgent (`providers/base.py`) sin cambios de diseño — ver
-`docs/02-COMPONENTES-REUTILIZABLES.md`. Todo el resto de Embudo depende SOLO
+`docs/02-COMPONENTES-REUTILIZABLES.md`. Todo el resto de EMS depende SOLO
 de estas abstracciones, nunca de un SDK concreto (Clean/Hexagonal
 Architecture). Los adaptadores (anthropic, openai, google, ollama, ...)
 implementan `LLMProvider`.
@@ -46,7 +46,7 @@ class ToolSpec:
 
 @dataclass(frozen=True)
 class LLMRequest:
-    """Petición CANÓNICA de Embudo, independiente del proveedor.
+    """Petición CANÓNICA de EMS, independiente del proveedor.
 
     `profile` se resuelve en un YAML de perfiles → (provider, model, params).
     """

@@ -199,11 +199,12 @@ pip install -e .
 
 ```python
 from datetime import datetime, timezone
-from embudo import Embudo
-from memory.capture import Turn, Consent
+
+from ems import EMS
+from memory.capture import Consent, Turn
 
 # 1. Open persistent local memory store
-with Embudo.open("memory.db") as memory:
+with EMS.open("memory.db") as memory:
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     # 2. Register conversation turn with explicit user consent
@@ -236,12 +237,12 @@ with Embudo.open("memory.db") as memory:
 
 ```bash
 # View memory database statistics and custody metrics
-embudo stats memory.db
+ems stats memory.db
 ```
 
 Output (real example):
 ```text
-Embudo v0.2.0 — memory.db
+EMS v0.2.0 — memory.db
 esquema: v2
 claims activos: 14 (T1 4, T2 8, T3 2)
 estados: active 14, expired 1, superseded 3

@@ -1,4 +1,4 @@
-# Roadmap — Embudo
+# Roadmap — EMS (Evidenced Memory System)
 
 Fases pensadas para poder cerrarse de forma independiente y verificable,
 siguiendo el mismo principio de orden que `MagnusAgent/ROADMAP.md`: no abrir

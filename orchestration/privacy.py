@@ -25,7 +25,7 @@ from pathlib import Path
 
 import yaml
 
-log = logging.getLogger("embudo.privacy")
+log = logging.getLogger("ems.privacy")
 
 LOCAL_ONLY = "local_only"
 REMOTE_ALLOWED = "remote_allowed"

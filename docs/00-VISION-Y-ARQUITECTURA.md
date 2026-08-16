@@ -1,4 +1,4 @@
-# Visión y arquitectura — Embudo
+# Visión y arquitectura — EMS (Evidenced Memory System)
 
 ## El problema que resuelve
 

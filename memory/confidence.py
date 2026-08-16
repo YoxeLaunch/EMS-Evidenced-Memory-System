@@ -10,7 +10,7 @@ vuelta al claim.
 
 **No es un gate.** La promoción T2→T3 la sigue decidiendo el evaluador
 estructural (`memory/promotion.py`); esta cifra es telemetría (G1,
-`embudo stats`) y superficie de consulta — convertir la cifra en evidencia
+`ems stats`) y superficie de consulta — convertir la cifra en evidencia
 de promoción sería el eco que el sistema promete evitar.
 
 Fórmula::

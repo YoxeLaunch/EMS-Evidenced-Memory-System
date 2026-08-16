@@ -194,7 +194,7 @@ class SqliteClaimStore:
         if actual > SCHEMA_VERSION:
             raise StoreVersionError(
                 f"la DB en {self.path!r} tiene esquema v{actual} pero este código "
-                f"solo conoce hasta v{SCHEMA_VERSION}; actualiza Embudo antes de abrirla"
+                f"solo conoce hasta v{SCHEMA_VERSION}; actualiza EMS antes de abrirla"
             )
         for version in range(actual + 1, SCHEMA_VERSION + 1):
             sentencias = _MIGRACIONES[version]
@@ -217,7 +217,7 @@ class SqliteClaimStore:
         except sqlite3.OperationalError as exc:
             if "locked" in str(exc) or "busy" in str(exc):
                 raise StoreLockedError(
-                    f"otro writer posee el store {self.path!r}; Embudo es "
+                    f"otro writer posee el store {self.path!r}; EMS es "
                     "single-writer por diseño ([D-06]) — cierra el otro proceso "
                     "o reintenta"
                 ) from exc

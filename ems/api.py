@@ -1,4 +1,4 @@
-"""Fachada `Embudo` — el orquestador del bucle que antes solo existía en
+"""Fachada `EMS` — el orquestador del bucle que antes solo existía en
 los tests de integración (hallazgo de la auditoría 2026-08-16: "el único
 uso como llamante real es el test").
 
@@ -33,20 +33,20 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-class Embudo:
+class EMS:
     """Fachada estable del sistema de memoria nivelada ([D-08]).
 
     Uso típico::
 
-        from embudo import Embudo
+        from ems import EMS
         from memory.capture import Consent, Turn
 
-        with Embudo.open("memoria.db") as embudo:
-            record, claims = embudo.register_conversation(
+        with EMS.open("memoria.db") as ems:
+            record, claims = ems.register_conversation(
                 [Turn("user", "soy alergico a la penicilina", _ts)],
                 agent_id="dr_soma", user_id="user-1",
                 consent=Consent(True, "raw_conversation", "user-1", _ts))
-            ctx = embudo.recall("alergias del usuario", agent_id="dr_soma")
+            ctx = ems.recall("alergias del usuario", agent_id="dr_soma")
     """
 
     def __init__(self, *, claim_store: InMemoryClaimStore,
@@ -57,7 +57,7 @@ class Embudo:
 
     @classmethod
     def open(cls, path: str | Path, *, conversations_dir: str | Path | None = None,
-             busy_timeout_ms: int = 250) -> "Embudo":
+             busy_timeout_ms: int = 250) -> "EMS":
         """Abre (o crea) una memoria persistente: DB SQLite de claims + JSONL
         de conversaciones T0. Por defecto, las conversaciones van a
         `<db>-conversations/` junto a la DB."""
@@ -132,7 +132,7 @@ class Embudo:
                 and (tier is None or c.tier == tier)]
 
     def stats(self) -> dict:
-        """Resumen de salud de la memoria — la base de `embudo stats` (G1).
+        """Resumen de salud de la memoria — la base de `ems stats` (G1).
         Degrada sin error sobre stores sin custodia (RAM)."""
         activos = self._claims.active()
         por_tier = {t.value: 0 for t in Tier}
@@ -165,8 +165,12 @@ class Embudo:
         if cerrar is not None:
             cerrar()
 
-    def __enter__(self) -> "Embudo":
+    def __enter__(self) -> "EMS":
         return self
 
     def __exit__(self, *exc) -> None:
         self.close()
+
+
+# Alias de retrocompatibilidad
+Embudo = EMS

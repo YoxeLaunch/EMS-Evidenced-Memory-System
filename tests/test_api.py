@@ -1,4 +1,4 @@
-"""Fase A3 — fachada `Embudo` y CLI: el bucle completo como lo usaría un
+"""Fase A3 — fachada `EMS` y CLI: el bucle completo como lo usaría un
 llamante real, con la cadena de custodia encendida ([D-08]).
 
 El hallazgo de la auditoría era que el orquestador del bucle solo existía
@@ -11,8 +11,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from embudo import Embudo
-from embudo.cli import main
+from ems import EMS, Embudo
+from ems.cli import main
 from memory.capture import Consent, Turn
 from memory.claims import Tier
 from memory.sqlite_store import SqliteClaimStore
@@ -30,25 +30,25 @@ def _turno(texto: str) -> Turn:
 
 def test_el_bucle_completo_sobre_persistencia_real(tmp_path):
     db = tmp_path / "memoria.db"
-    with Embudo.open(db) as embudo:
+    with EMS.open(db) as ems_inst:
         for i in range(3):
-            record, resultados = embudo.register_conversation(
+            record, resultados = ems_inst.register_conversation(
                 [_turno("soy alergico a la penicilina")],
                 agent_id="dr_soma", user_id="user-1", consent=_consent())
             assert record.id  # proveniencia T0 con id propio
 
-        [t2] = embudo.claims(agent_id="dr_soma", tier=Tier.T2)
+        [t2] = ems_inst.claims(agent_id="dr_soma", tier=Tier.T2)
         assert t2.reinforcement_count == 3
 
-        resultado = embudo.promote(t2.id)  # por id: lo que haría una UI
+        resultado = ems_inst.promote(t2.id)  # por id: lo que haría una UI
         assert resultado.approved
 
-        ctx = embudo.recall("alergico a la penicilina", agent_id="dr_soma")
+        ctx = ems_inst.recall("alergico a la penicilina", agent_id="dr_soma")
         assert ctx.t3 and not ctx.t2
         assert ctx.t3[0].confidence_label == "autoridad_plena"
         assert "confianza_media" not in ctx.as_prompt_block()
 
-        stats = embudo.stats()
+        stats = ems_inst.stats()
         assert stats["claims_activos"] == 1
         assert stats["por_tier"]["T3"] == 1
         assert stats["eventos"]["extraction"] == 1, "la 1ª conversación extrae"
@@ -58,7 +58,7 @@ def test_el_bucle_completo_sobre_persistencia_real(tmp_path):
         assert stats["esquema"] == 2
 
     # "matar el proceso": una instancia nueva sobre la misma DB
-    with Embudo.open(db) as reabierto:
+    with EMS.open(db) as reabierto:
         [t3] = reabierto.claims(agent_id="dr_soma", tier=Tier.T3)
         assert t3.text == "soy alergico a la penicilina"
         assert reabierto.stats()["eventos"]["promotion"] == 1, \
@@ -66,21 +66,21 @@ def test_el_bucle_completo_sobre_persistencia_real(tmp_path):
 
 
 def test_sin_consentimiento_no_se_escribe_nada(tmp_path):
-    with Embudo.open(tmp_path / "memoria.db") as embudo:
+    with EMS.open(tmp_path / "memoria.db") as ems_inst:
         with pytest.raises(PermissionError):  # ConsentRequired
-            embudo.register_conversation(
+            ems_inst.register_conversation(
                 [_turno("soy alergico a la penicilina")],
                 agent_id="dr_soma", user_id="user-1",
                 consent=Consent(False, "raw_conversation", "user-1", _TS))
-        assert embudo.claims() == []
-        assert embudo.stats()["conversaciones_t0"] == 0
+        assert ems_inst.claims() == []
+        assert ems_inst.stats()["conversaciones_t0"] == 0
 
 
 def test_la_cli_reporta_la_memoria(tmp_path, capsys):
     db = tmp_path / "memoria.db"
-    with Embudo.open(db) as embudo:
+    with EMS.open(db) as ems_inst:
         for _ in range(3):
-            embudo.register_conversation(
+            ems_inst.register_conversation(
                 [_turno("soy alergico a la penicilina")],
                 agent_id="dr_soma", user_id="user-1", consent=_consent())
 
@@ -102,11 +102,15 @@ def test_la_fachada_funciona_con_store_en_ram_sin_custodia():
     metadatos de conversación sin romperse ([D-08]: fachada estable)."""
     from memory.store import InMemoryClaimStore
 
-    embudo = Embudo(claim_store=InMemoryClaimStore())
-    _, [claim] = embudo.register_conversation(
+    ems_inst = EMS(claim_store=InMemoryClaimStore())
+    _, [claim] = ems_inst.register_conversation(
         [_turno("me gusta el cafe negro")],
         agent_id="a1", user_id="user-1", consent=_consent())
 
     assert claim.tier == Tier.T1
-    stats = embudo.stats()
+    stats = ems_inst.stats()
     assert stats["eventos"] is None, "sin custodia no hay eventos — y no explota"
+
+
+def test_retrocompatibilidad_alias_embudo(tmp_path):
+    assert Embudo is EMS

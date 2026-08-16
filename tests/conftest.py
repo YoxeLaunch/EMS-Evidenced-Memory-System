@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:  # permite `pytest` sin `pip install -e .`
 
 _CLAVES_DE_PROVEEDOR = [
     "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY",
-    "MISTRAL_API_KEY", "OPENROUTER_API_KEY", "EMBUDO_PROVIDER",
+    "MISTRAL_API_KEY", "OPENROUTER_API_KEY", "EMS_PROVIDER", "EMBUDO_PROVIDER",
 ]
 
 

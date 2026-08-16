@@ -2,7 +2,7 @@
 
 Portado de MagnusAgent (`orchestration/audit.py`) — ver
 `docs/02-COMPONENTES-REUTILIZABLES.md`. La fase de memoria nivelada
-(`docs/01-MEMORIA-NIVELADA.md`) extenderá `build_entry` para registrar sus
+(`docs/01-MEMORIA-NIVELADA.md`) extiende `build_entry` para registrar sus
 propios eventos (extracción, refuerzo, promoción, sucesión, expiración); esta
 capa de almacenamiento (`TraceStore` / `JsonlTraceStore`) no depende de eso y
 queda lista desde ya.
@@ -16,7 +16,7 @@ personales no debe quedar legible por otros usuarios del sistema.
 Privacidad — decisión deliberada
 --------------------------------
   - El registro está **desactivado por defecto** (`NullTraceStore`). Se activa
-    explícitamente (`EMBUDO_TRACE_DIR=...`). Nada se escribe a disco si nadie
+    explícitamente (`EMS_TRACE_DIR=...`). Nada se escribe a disco si nadie
     lo pidió.
   - Se guardan referencias (id, hash), nunca el texto de los pasajes ni la
     respuesta generada.
@@ -59,9 +59,9 @@ class JsonlTraceStore:
     Rotación por tamaño (opt-in vía ``max_total_mb``)
     ---------------------------------------------------
     Las trazas se acumulan indefinidamente por defecto. Si se fija
-    ``max_total_mb`` (o `EMBUDO_TRACE_MAX_MB` vía :func:`trace_store_from_env`),
+    ``max_total_mb`` (o `EMS_TRACE_MAX_MB` vía :func:`trace_store_from_env`),
     cada `record()` revisa el tamaño total del directorio *después* de
-    escribir y, si excede el límite, borra los archivos `embudo-*.jsonl` más
+    escribir y, si excede el límite, borra los archivos `ems-*.jsonl` más
     antiguos (por nombre, que ya ordena por fecha `YYYY-MM-DD`) hasta volver a
     estar dentro del límite. El archivo del día actual nunca se borra, aunque
     él solo exceda el límite — la purga es perezosa (un chequeo por
@@ -81,7 +81,7 @@ class JsonlTraceStore:
 
     def _path(self) -> Path:
         dia = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        return self.directory / f"embudo-{dia}.jsonl"
+        return self.directory / f"ems-{dia}.jsonl"
 
     def record(self, entry: dict) -> None:
         ruta_actual = self._path()
@@ -96,7 +96,7 @@ class JsonlTraceStore:
 
     def _purgar_si_excede(self, ruta_actual: Path) -> None:
         limite_bytes = self.max_total_mb * 1024 * 1024
-        archivos = sorted(self.directory.glob("embudo-*.jsonl"))
+        archivos = sorted(set(list(self.directory.glob("ems-*.jsonl")) + list(self.directory.glob("embudo-*.jsonl"))))
         total = sum(a.stat().st_size for a in archivos)
         for archivo in archivos:
             if total <= limite_bytes or archivo == ruta_actual:
@@ -106,30 +106,24 @@ class JsonlTraceStore:
 
 
 def trace_store_from_env(
-    var: str = "EMBUDO_TRACE_DIR", max_mb_var: str = "EMBUDO_TRACE_MAX_MB"
+    var: str = "EMS_TRACE_DIR", max_mb_var: str = "EMS_TRACE_MAX_MB"
 ) -> TraceStore:
     """`JsonlTraceStore` si la variable está puesta; si no, no registra nada."""
-    directorio = os.environ.get(var, "").strip()
+    directorio = os.environ.get(var, "").strip() or os.environ.get("EMBUDO_TRACE_DIR", "").strip()
     if not directorio:
         return NullTraceStore()
-    max_mb_raw = os.environ.get(max_mb_var, "").strip()
+    max_mb_raw = os.environ.get(max_mb_var, "").strip() or os.environ.get("EMBUDO_TRACE_MAX_MB", "").strip()
     max_mb = float(max_mb_raw) if max_mb_raw else None
     return JsonlTraceStore(directorio, max_total_mb=max_mb)
 
 
 def build_entry(*, agent_id: str, event: str, details: dict,
-                source_conversation_ids: list[str] | None = None) -> dict:
-    """Entrada de auditoría genérica.
-
-    Punto de extensión para la fase de memoria nivelada: `event` será
-    `"extraction"`, `"reinforcement"`, `"promotion"`, `"supersession"`,
-    `"expiration"`, y `details` llevará los ids/hashes de `MemoryClaim`
-    involucrados — nunca el texto del claim ni de la conversación.
-    """
+                timestamp: str | None = None) -> dict:
+    """Construye una entrada de traza estándar con marca temporal UTC."""
+    ts = timestamp or datetime.now(timezone.utc).isoformat()
     return {
-        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "agente": agent_id,
-        "evento": event,
-        "detalles": details,
-        "conversaciones_origen": source_conversation_ids or [],
+        "timestamp": ts,
+        "agent_id": agent_id,
+        "event": event,
+        "details": details,
     }

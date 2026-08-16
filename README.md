@@ -201,11 +201,12 @@ pip install -e .
 
 ```python
 from datetime import datetime, timezone
-from embudo import Embudo
-from memory.capture import Turn, Consent
+
+from ems import EMS
+from memory.capture import Consent, Turn
 
 # 1. Abrir la base de datos de memoria persistente
-with Embudo.open("memoria.db") as memoria:
+with EMS.open("memoria.db") as memoria:
     ahora = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
     # 2. Registrar turno con consentimiento explícito del usuario
@@ -238,12 +239,12 @@ with Embudo.open("memoria.db") as memoria:
 
 ```bash
 # Ver métricas de salud, claims activos y eventos de custodia
-embudo stats memoria.db
+ems stats memoria.db
 ```
 
 Salida (ejemplo real):
 ```text
-Embudo v0.2.0 — memoria.db
+EMS v0.2.0 — memoria.db
 esquema: v2
 claims activos: 14 (T1 4, T2 8, T3 2)
 estados: active 14, expired 1, superseded 3

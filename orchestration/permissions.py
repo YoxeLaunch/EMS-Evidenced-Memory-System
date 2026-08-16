@@ -23,7 +23,7 @@ from pathlib import Path
 
 import yaml
 
-log = logging.getLogger("embudo.permissions")
+log = logging.getLogger("ems.permissions")
 
 #: Rol por defecto de quien llama sin identificarse. Es el rol MENOS
 #: privilegiado que puede consultar.
