@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "embudo"
-version = "0.1.0"
+version = "0.2.0"
 description = "Memoria nivelada para agentes que aprenden de sus propias conversaciones"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,6 +12,9 @@ license = { text = "Apache-2.0" }
 dependencies = [
     "PyYAML>=6.0",
 ]
+
+[project.scripts]
+embudo = "embudo.cli:main"
 
 [project.optional-dependencies]
 # Adaptadores de proveedor remoto: opcionales a propósito, igual que en
@@ -24,6 +27,7 @@ dev = [
 
 [tool.setuptools]
 packages = [
+    "embudo",
     "providers",
     "rag",
     "orchestration",
