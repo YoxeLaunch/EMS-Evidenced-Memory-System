@@ -22,7 +22,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from memory.claims import MemoryClaim, Status, Tier, normalize_text
+from memory.claims import (
+    MemoryClaim, Status, Tier, es_negacion_de, normalize_text, sin_prefijo_discurso,
+)
+from memory.events import CustodyStore, copia, payload_transicion
 from memory.reinforcement import DEFAULT_REINFORCEMENT_THRESHOLD
 from memory.store import InMemoryClaimStore
 
@@ -83,12 +86,17 @@ class StructuralPromotionEvaluator:
 
 
 def _t3_contradictorio(claim: MemoryClaim, store: InMemoryClaimStore) -> MemoryClaim | None:
-    cand_norm = normalize_text(claim.text)
+    """Misma semántica de negación que `detect_contradiction` (helpers
+    compartidos de `memory/claims.py`): prefijos discursivos fuera, negación
+    exacta o por prefijo por palabra. Hallazgo T-06: esta función seguía con
+    la negación exacta vieja — el gate de promoción y la sucesión podían
+    discrepar sobre el mismo par de claims."""
+    cand_norm = sin_prefijo_discurso(normalize_text(claim.text))
     for existente in store.by_subject(claim.agent_id, claim.subject):
         if existente.tier != Tier.T3 or existente.id == claim.id:
             continue
-        exist_norm = normalize_text(existente.text)
-        if cand_norm == f"no {exist_norm}" or exist_norm == f"no {cand_norm}":
+        exist_norm = sin_prefijo_discurso(normalize_text(existente.text))
+        if es_negacion_de(cand_norm, exist_norm) or es_negacion_de(exist_norm, cand_norm):
             return existente
     return None
 
@@ -117,6 +125,12 @@ def promote_to_t3(
             False,
             "dominio de alto riesgo: requiere confirmación humana explícita antes de promover")
 
+    antes = copia(claim)
     claim.tier = Tier.T3
-    store.add(claim)
+    if isinstance(store, CustodyStore):
+        store.add(claim, event_type="promotion", event_payload=payload_transicion(
+            antes, claim, motivo=resultado.reason, evaluador=type(ev).__name__,
+            confirmacion_humana=high_risk))
+    else:
+        store.add(claim)
     return PromotionResult(True, resultado.reason, claim=claim)

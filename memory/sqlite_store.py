@@ -44,7 +44,7 @@ from memory.claims import MemoryClaim, Status, Tier, normalize_text
 
 #: Versión de esquema que maneja ESTE código. Migrar = añadir un paso nuevo
 #: aquí y subirla; abrir una DB con user_version mayor es un error.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 #: Tipos de evento válidos — los mismos que `orchestration/audit.py:120-128`
 #: documenta para la fase de memoria, más `wiki_sync` (Fase D del plan).
@@ -102,6 +102,38 @@ _MIGRACIONES: dict[int, tuple[str, ...]] = {
             sha256 TEXT
         )
         """,
+    ),
+    # v2 (T-06, requisito de custodia del humano): FK nullable
+    # events.claim_id → claims.id. SQLite no tiene ALTER TABLE ADD
+    # CONSTRAINT, así que es rebuild de tabla: crear con FK, copiar filas
+    # (con FK ON la copia RECHAZA huérfanos existentes — fallar la migración
+    # en voz alta es el comportamiento buscado), tirar la vieja, renombrar.
+    #
+    # conversation_id NO lleva FK — [D-14]: los metadatos de conversación
+    # son best-effort (una conversación puede registrarse después, o no
+    # registrarse en importaciones), y la purga de privacidad (G2) borra
+    # fuentes T0 que la cadena de custodia debe sobrevivir (los eventos
+    # llevan ids, nunca contenido). claim_id sí es estructural: los claims
+    # no se borran jamás (sucesión/estado, no DELETE).
+    2: (
+        """
+        CREATE TABLE events_v2 (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL,
+            tipo TEXT NOT NULL,
+            claim_id TEXT REFERENCES claims(id),
+            conversation_id TEXT,
+            payload TEXT
+        )
+        """,
+        """
+        INSERT INTO events_v2 (seq, ts, tipo, claim_id, conversation_id, payload)
+            SELECT seq, ts, tipo, claim_id, conversation_id, payload FROM events
+            ORDER BY seq
+        """,
+        "DROP TABLE events",
+        "ALTER TABLE events_v2 RENAME TO events",
+        "CREATE INDEX IF NOT EXISTS idx_events_claim ON events (claim_id)",
     ),
 }
 

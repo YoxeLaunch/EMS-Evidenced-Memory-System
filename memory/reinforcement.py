@@ -38,51 +38,15 @@ proveniencia por si se reactiva".
 from __future__ import annotations
 
 from rag.embedder import HashingEmbedder
-from memory.claims import MemoryClaim, Status, Tier, normalize_text
+from memory.claims import (
+    MemoryClaim, Status, Tier, es_negacion_de, normalize_text, sin_prefijo_discurso,
+)
 from memory.dedup import find_match
+from memory.events import CustodyStore, copia, payload_transicion
 from memory.store import InMemoryClaimStore
 
 #: Nº de refuerzos en conversaciones distintas para ascender T1 → T2.
 DEFAULT_REINFORCEMENT_THRESHOLD = 3
-
-#: Marcadores discursivos de cambio (texto normalizado, sin acentos) que se
-#: quitan antes de comparar negaciones. Solo la parte DISCURSIVA: "ya no como
-#: carne" deja "no como carne" (el "no" es el negador, se conserva), y "dejo
-#: de fumar" deja "fumar". Sin estos prefijos, "ya no como carne" no calzaría
-#: con ningún patrón de negación literal.
-_PREFIJOS_CAMBIO = ("ya", "ahora", "deje de", "dejo de")
-
-
-def _sin_prefijo_cambio(t: str) -> str:
-    """Quita prefijos discursivos de cambio ("ahora ya no como carne" →
-    "no como carne") de un texto YA normalizado por `normalize_text`."""
-    for _ in range(3):
-        for prefijo in _PREFIJOS_CAMBIO:
-            if t == prefijo or t.startswith(prefijo + " "):
-                t = t[len(prefijo):].strip()
-                break
-    return t
-
-
-def _es_negacion_de(a: str, b: str) -> bool:
-    """¿`a` es la negación explícita de `b`?
-
-    Caso exacto: `a == "no " + b` ("no como carne" niega "como carne").
-
-    Caso prefijo: `a` niega un PREFIJO POR PALABRA de `b` — "no como carne"
-    también niega "como carne todos los dias", porque al corregir el usuario
-    no repite el detalle completo. Es el ejemplo canónico de `docs/01`
-    ('ya no como carne' tras 'como carne todos los días'). El corte por
-    palabra (nunca a mitad de palabra) mantiene la comparación estructural.
-    """
-    if not b or not a.startswith("no ") or len(a) <= 3:
-        return False
-    if a == f"no {b}":
-        return True
-    resto = a[3:]
-    return bool(resto) and b.startswith(resto) and (
-        len(b) == len(resto) or b[len(resto)] == " "
-    )
 
 
 def detect_contradiction(candidate: MemoryClaim, store: InMemoryClaimStore) -> MemoryClaim | None:
@@ -94,22 +58,33 @@ def detect_contradiction(candidate: MemoryClaim, store: InMemoryClaimStore) -> M
     `superseded` conservando proveniencia.
     """
     activos = store.by_subject(candidate.agent_id, candidate.subject)
-    cand_norm = _sin_prefijo_cambio(normalize_text(candidate.text))
+    cand_norm = sin_prefijo_discurso(normalize_text(candidate.text))
     for existente in activos:
-        exist_norm = _sin_prefijo_cambio(normalize_text(existente.text))
-        if _es_negacion_de(cand_norm, exist_norm) or _es_negacion_de(exist_norm, cand_norm):
+        exist_norm = sin_prefijo_discurso(normalize_text(existente.text))
+        if es_negacion_de(cand_norm, exist_norm) or es_negacion_de(exist_norm, cand_norm):
             return existente
     return None
 
 
-def supersede(new: MemoryClaim, old: MemoryClaim, store: InMemoryClaimStore) -> MemoryClaim:
+def supersede(new: MemoryClaim, old: MemoryClaim, store: InMemoryClaimStore, *,
+              conversacion: str | None = None) -> MemoryClaim:
     """Marca `old` como reemplazado por `new`. Nunca borra ni sobrescribe
-    contenido — solo cambia estado y pointers de sucesión."""
+    contenido — solo cambia estado y pointers de sucesión.
+
+    Contra un store con custodia, el cambio de estado de `old` se escribe
+    con su evento `supersession` en la misma transición ([D-07]).
+    """
+    antes = copia(old)
     old.status = Status.SUPERSEDED
     old.superseded_by = new.id
     new.supersedes = old.id
-    store.add(old)
-    store.add(new)
+    if isinstance(store, CustodyStore):
+        store.add(old, event_type="supersession", conversation_id=conversacion,
+                  event_payload=payload_transicion(antes, old, conversacion=conversacion))
+        store.add(new)
+    else:
+        store.add(old)
+        store.add(new)
     return new
 
 
@@ -125,25 +100,45 @@ def reinforce_or_create(
     ascendido a T2 o revivido desde `expired`), el nuevo candidato
     reemplazando a uno contradicho, o el candidato mismo si es genuinamente
     nuevo.
+
+    Contra un store con custodia (`CustodyStore`), cada cambio de estado
+    emite su evento automáticamente — el llamante no pasa `event_type`:
+    extracción al entrar un claim nuevo, refuerzo al mutar uno existente
+    (incluido el revival desde `expired`), sucesión en la contradicción.
     """
+    custodia = isinstance(store, CustodyStore)
+    origen = (candidate.source_conversation_ids[0]
+              if candidate.source_conversation_ids else None)
+
     contradicho = detect_contradiction(candidate, store)
     if contradicho is not None:
-        store.add(candidate)  # el candidato entra como T1 nuevo, no hereda tier
-        return supersede(candidate, contradicho, store)
+        # el puntero se fija ANTES del add para que el payload de extracción
+        # nazca documentando la relación (supersede re-asigna el mismo valor)
+        candidate.supersedes = contradicho.id
+        if custodia:
+            store.add(candidate, event_type="extraction", conversation_id=origen,
+                      event_payload=payload_transicion(None, candidate, conversacion=origen))
+        else:
+            store.add(candidate)  # el candidato entra como T1 nuevo, no hereda tier
+        return supersede(candidate, contradicho, store, conversacion=origen)
 
     match = find_match(candidate, store, embedder=embedder)
     if match is None and revive_expired:
         match = find_match(candidate, store, embedder=embedder, include_expired=True)
 
     if match is None:
-        store.add(candidate)
+        if custodia:
+            store.add(candidate, event_type="extraction", conversation_id=origen,
+                      event_payload=payload_transicion(None, candidate, conversacion=origen))
+        else:
+            store.add(candidate)
         return candidate
 
-    origen = candidate.source_conversation_ids[0]
     era_expirado = match.status == Status.EXPIRED
     if origen in match.source_conversation_ids and not era_expirado:
         return match  # misma conversación: no es una señal independiente
 
+    antes = copia(match)
     if era_expirado:
         match.status = Status.ACTIVE
     if origen not in match.source_conversation_ids:
@@ -153,5 +148,9 @@ def reinforce_or_create(
     match.confidence = max(match.confidence, candidate.confidence)
     if match.tier == Tier.T1 and match.reinforcement_count >= threshold:
         match.tier = Tier.T2
-    store.add(match)
+    if custodia:
+        store.add(match, event_type="reinforcement", conversation_id=origen,
+                  event_payload=payload_transicion(antes, match, conversacion=origen))
+    else:
+        store.add(match)
     return match

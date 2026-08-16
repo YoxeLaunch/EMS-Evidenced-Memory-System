@@ -43,6 +43,49 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", t)
 
 
+#: Marcadores discursivos de cambio (texto ya normalizado, sin acentos) que
+#: se quitan antes de comparar negaciones. Solo la parte DISCURSIVA: "ya no
+#: como carne" deja "no como carne" (el "no" es el negador, se conserva), y
+#: "dejo de fumar" deja "fumar". Vive aquí — no en reinforcement — porque la
+#: semántica de negación la consumen tanto la sucesión (reinforcement) como
+#: el gate de promoción (promotion), y bifurcarla dejaría los dos criterios
+#: desincronizándose en silencio (hallazgo T-06: `_t3_contradictorio` aún
+#: usaba la negación exacta vieja).
+PREFIJOS_DISCURSIVOS = ("ya", "ahora", "deje de", "dejo de")
+
+
+def sin_prefijo_discurso(t: str) -> str:
+    """Quita prefijos discursivos de cambio ("ahora ya no como carne" →
+    "no como carne") de un texto YA normalizado por `normalize_text`."""
+    for _ in range(3):
+        for prefijo in PREFIJOS_DISCURSIVOS:
+            if t == prefijo or t.startswith(prefijo + " "):
+                t = t[len(prefijo):].strip()
+                break
+    return t
+
+
+def es_negacion_de(a: str, b: str) -> bool:
+    """¿`a` es la negación explícita de `b`?
+
+    Caso exacto: `a == "no " + b` ("no como carne" niega "como carne").
+
+    Caso prefijo: `a` niega un PREFIJO POR PALABRA de `b` — "no como carne"
+    también niega "como carne todos los dias", porque al corregir el usuario
+    no repite el detalle completo. Es el ejemplo canónico de `docs/01`
+    ('ya no como carne' tras 'como carne todos los días'). El corte por
+    palabra (nunca a mitad de palabra) mantiene la comparación estructural.
+    """
+    if not b or not a.startswith("no ") or len(a) <= 3:
+        return False
+    if a == f"no {b}":
+        return True
+    resto = a[3:]
+    return bool(resto) and b.startswith(resto) and (
+        len(b) == len(resto) or b[len(resto)] == " "
+    )
+
+
 def claim_id(agent_id: str, subject: str, text: str) -> str:
     """Hash de `(agent_id, subject, texto_normalizado)`."""
     base = f"{agent_id}\x00{normalize_text(subject)}\x00{normalize_text(text)}"

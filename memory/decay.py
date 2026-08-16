@@ -28,6 +28,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from memory.claims import MemoryClaim, Status
+from memory.events import CustodyStore, copia, payload_transicion
 from memory.store import InMemoryClaimStore
 
 #: Confianza efectiva por debajo de la cual un claim activo expira. Un solo
@@ -57,11 +58,24 @@ def expire_stale_claims(
 ) -> list[MemoryClaim]:
     """Pasa a `status=expired` los claims activos cuya confianza efectiva
     cayó bajo `threshold`. Devuelve los recién expirados (para auditoría,
-    ver `orchestration/audit.build_entry(event="expiration", ...)`)."""
+    ver `orchestration/audit.build_entry(event="expiration", ...)`).
+
+    Contra un store con custodia, cada expiración se escribe con su evento
+    `expiration` — payload con la confianza efectiva que disparó el umbral,
+    para que la cadena explique POR QUÉ caducó, no solo cuándo.
+    """
     expirados = []
+    custodia = isinstance(store, CustodyStore)
     for claim in store.active():
-        if effective_confidence(claim, now=now) < threshold:
+        confianza = effective_confidence(claim, now=now)
+        if confianza < threshold:
+            antes = copia(claim)
             claim.status = Status.EXPIRED
-            store.add(claim)
+            if custodia:
+                store.add(claim, event_type="expiration", event_payload=payload_transicion(
+                    antes, claim, confianza_efectiva=round(confianza, 4),
+                    umbral=threshold))
+            else:
+                store.add(claim)
             expirados.append(claim)
     return expirados

@@ -159,6 +159,60 @@ def test_los_timestamps_de_eventos_son_utc(tmp_path):
     store.close()
 
 
+def test_fk_un_evento_no_puede_referenciar_un_claim_inexistente(tmp_path):
+    """Requisito de custodia T-06 (migración v2): sin FK, una cadena podía
+    referenciar ids inexistentes sin error."""
+    store = SqliteClaimStore(tmp_path / "embudo.db")
+    with pytest.raises(sqlite3.IntegrityError):
+        store.append_event("expiration", claim_id="claim-fantasma")
+    store.close()
+
+
+def test_fk_un_evento_con_claim_null_es_valido(tmp_path):
+    """El claim_id es nullable a propósito: eventos globales (p. ej. un
+    futuro wiki_sync masivo) no cuelgan de un claim concreto."""
+    store = SqliteClaimStore(tmp_path / "embudo.db")
+    seq = store.append_event("expiration", claim_id=None)
+    assert store.events()[0].seq == seq
+    store.close()
+
+
+def test_conversation_id_no_se_valida_contra_sources_d14(tmp_path):
+    """[D-14]: los metadatos de conversación son best-effort — un evento
+    puede referenciar una conversación cuya fuente no se registró (todavía).
+    La FK estructural es claim_id; la conversacional no."""
+    store = SqliteClaimStore(tmp_path / "embudo.db")
+    store.add(_claim(), event_type="extraction", conversation_id="conv-no-registrada")
+    assert store.events()[0].conversation_id == "conv-no-registrada"
+    store.close()
+
+
+def test_migracion_v2_preserva_eventos_y_continuidad_de_seq(tmp_path):
+    """Simula una DB v1 (sin FK en events): migra a v2, conserva los eventos
+    y la secuencia AUTOINCREMENT continúa sin reiniciarse ni colisionar."""
+    db = tmp_path / "embudo.db"
+    store = SqliteClaimStore(db)
+    store.add(_claim(), event_type="extraction")
+    store.add(_claim(), event_type="reinforcement")
+    ultimo_seq = store.events()[-1].seq
+    store.close()
+
+    conn = sqlite3.connect(str(db))
+    conn.execute("PRAGMA user_version = 1")
+    conn.close()
+
+    reopened = SqliteClaimStore(db)
+    assert reopened.schema_version == 2
+    eventos = reopened.events()
+    assert len(eventos) == 2, "la migración conserva la cadena"
+    assert [e.seq for e in eventos] == sorted(e.seq for e in eventos)
+
+    nuevo_seq = reopened.append_event("expiration", claim_id=_claim().id)
+    assert nuevo_seq > ultimo_seq, "AUTOINCREMENT continúa, no reinicia"
+    assert len(reopened.events()) == 3
+    reopened.close()
+
+
 def test_events_filtra_por_tipo_y_claim(tmp_path):
     store = SqliteClaimStore(tmp_path / "embudo.db")
     a = _claim("conv-1")
