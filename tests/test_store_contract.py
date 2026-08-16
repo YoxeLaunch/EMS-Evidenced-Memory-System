@@ -1,28 +1,32 @@
 """Contrato del store de claims — Fase A de `docs/04-PLAN-MEJORAS.md`.
 
 Define el comportamiento que CUALQUIER backend de `MemoryClaim` debe cumplir
-(hoy `InMemoryClaimStore`; `SqliteClaimStore` cuando se decida [P-01]). Un
-backend nuevo se certifica añadiendo su fábrica a `BACKENDS`: el resto de la
-suite no cambia. Es lo que permite desarrollar la persistencia sin tocar el
-pipeline de memoria nivelada — mismo espíritu del docstring de
-`memory/store.py`: "persistencia real es sustituir esta clase".
+(hoy `InMemoryClaimStore` y `SqliteClaimStore`). Un backend nuevo se certifica
+añadiendo su fábrica a `BACKENDS`: el resto de la suite no cambia. Es lo que
+permitió desarrollar la persistencia sin tocar el pipeline de memoria
+nivelada — mismo espíritu del docstring de `memory/store.py`: "persistencia
+real es sustituir esta clase".
 """
 from __future__ import annotations
 
 import pytest
 
 from memory.claims import MemoryClaim, Status, Tier
+from memory.sqlite_store import SqliteClaimStore
 from memory.store import InMemoryClaimStore
 
-#: Cada entrada: (fábrica de store). Una fábrica devuelve un store vacío.
+#: Cada entrada: fábrica que recibe `tmp_path` (los backends con estado en
+#: disco lo usan; los de RAM lo ignoran) y devuelve un store vacío.
 BACKENDS = [
-    pytest.param(InMemoryClaimStore, id="in-memory"),
+    pytest.param(lambda tmp_path: InMemoryClaimStore(), id="in-memory"),
+    pytest.param(lambda tmp_path: SqliteClaimStore(tmp_path / "claims.db"),
+                 id="sqlite"),
 ]
 
 
 @pytest.fixture(params=BACKENDS)
-def store(request) -> InMemoryClaimStore:
-    return request.param()
+def store(request, tmp_path) -> InMemoryClaimStore:
+    return request.param(tmp_path)
 
 
 def _claim(subject: str, *, text: str | None = None, agent_id: str = "a1",
