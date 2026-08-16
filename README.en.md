@@ -39,6 +39,7 @@ Conversation (T0) ➔ Extracted Candidate (T1) ➔ Reinforced Evidence (T2) ➔ 
   - [Python Facade Usage](#python-facade-usage)
   - [CLI Inspection](#cli-inspection)
 - [Data Model (`MemoryClaim`)](#-data-model-memoryclaim)
+- [Project Status](#-project-status)
 - [Technical Documentation](#-technical-documentation)
 - [Positioning](#-positioning)
 
@@ -74,7 +75,7 @@ graph LR
     T0["<b>T0: Raw Record</b><br/>Unprocessed dialogue<br/><i>Consent gated</i>"] -->|Deterministic Extraction| T1["<b>T1: Candidate</b><br/>Isolated hypothesis<br/><i>Not citable</i>"]
     T1 -->|Multi-session reinforcement| T2["<b>T2: Reinforced Evidence</b><br/>Recurrent evidence<br/><i>Citable with visible uncertainty</i>"]
     T2 -->|Promotion Evaluator / Human gate| T3["<b>T3: Promoted Knowledge</b><br/>Full authority memory<br/><i>Citable with provenance</i>"]
-    T4["<b>T4: Human Curated</b><br/>Hand-curated knowledge<br/><i>Highest operational precedence</i>"] -.->|Benchmark & Anchor| T3
+    T4["<b>T4: Human Curated</b><br/>Hand-curated knowledge<br/><i>⏳ Decided — pending (Phase D)</i>"] -.->|Benchmark & Anchor| T3
 
     classDef t0 fill:#eceff1,stroke:#607d8b,stroke-width:2px,color:#263238;
     classDef t1 fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#f57f17;
@@ -93,9 +94,9 @@ graph LR
 |:---:|:---|:---|:---:|:---|
 | **T0** | **Raw Conversation** | Unprocessed dialogue stream with explicit consent. | ❌ **No** | Excluded from RAG retrieval context. |
 | **T1** | **Extracted Candidate** | Explicit statement extracted structurally from a single session. | ❌ **No** | Under observation. Never cited to the agent. |
-| **T2** | **Reinforced Evidence** | Candidate validated across multiple distinct sessions. | ⚠️ **With Uncertainty** | Injected with explicit uncertainty tags (`[EVIDENCIA T2]`). |
+| **T2** | **Reinforced Evidence** | Candidate validated across multiple distinct sessions. | ⚠️ **With Uncertainty** | Injected with a visible `confianza_media` label. |
 | **T3** | **Promoted Knowledge** | Passed strict multi-session promotion evaluator or human approval. | ✅ **Yes** | Injected with full authority and origin hash. |
-| **T4** | **Human Curated Source** | Verified enterprise documentation or human-edited truth. | ✅ **Highest Authority** | Always takes precedence in case of conflict. |
+| **T4** | **Human Curated Source** ⏳ | Verified documentation or human-edited truth. **Decided ([D-11] in the log), pending implementation (Phase D).** | ✅ (once implemented) | Highest operational precedence on conflict. |
 
 ---
 
@@ -163,21 +164,23 @@ sequenceDiagram
     participant EMS as Embudo Facade
     participant DB as SQLite ClaimStore
 
-    Note over User, DB: Phase 1: Original Fact
-    User->>EMS: "I live in Berlin"
-    EMS->>DB: Save Claim #101 (Subject: residence, Value: Berlin, Tier: T2, Status: active)
+    Note over User, DB: Phase 1: Statement (enters as T1)
+    User->>EMS: "I eat meat every day"
+    EMS->>DB: Save Claim #101 (Subject: meat, Tier: T1, Status: active)
 
-    Note over User, DB: Phase 2: Subsequent Contradiction
-    User->>EMS: "I moved to Tokyo last week"
-    EMS->>EMS: Detect contradiction on subject 'residence'
-    EMS->>DB: Create Claim #205 (Subject: residence, Value: Tokyo, Tier: T2, supersedes: #101)
-    EMS->>DB: Update Claim #101 (Status: superseded, superseded_by: #205)
+    Note over User, DB: Phase 2: Declared change of state
+    User->>EMS: "I no longer eat meat"
+    EMS->>EMS: Explicit negation detected BEFORE semantic match
+    EMS->>DB: Create Claim #205 (Tier: T1 — inherits no authority, supersedes: #101)
+    EMS->>DB: Mark #101 (Status: superseded, superseded_by: #205) + custody event
 
     Note over User, DB: Phase 3: Retrieval
-    User->>EMS: Recall "Where do I live?"
-    EMS->>DB: Query active claims only
-    DB-->>EMS: Returns Claim #205 (Tokyo) [#101 excluded from active recall]
-    EMS-->>User: "You live in Tokyo (superseded past residence in Berlin)"
+    User->>EMS: Recall "what do I eat?"
+    EMS->>DB: Query active T2/T3 claims only
+    DB-->>EMS: #205 is still T1 → not citable as fact yet
+    EMS-->>User: No citable evidence yet (needs multi-session reinforcement)
+
+    Note over User, DB: Detection is EXPLICIT (literal negation with<br/>"ya no / dejé de" prefixes); implicit or semantic contradiction<br/>("I moved to another city") is an open problem, not a promise.
 ```
 
 ---
@@ -201,33 +204,30 @@ from memory.capture import Turn, Consent
 
 # 1. Open persistent local memory store
 with Embudo.open("memory.db") as memory:
-    now_iso = datetime.now(timezone.utc).isoformat()
-    
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
     # 2. Register conversation turn with explicit user consent
+    #    (nothing is written without granted consent — ConsentRequired)
     consent = Consent(
         granted=True,
-        scope="profile_and_preferences",
-        user_id="user_123",
-        timestamp=now_iso
+        scope="raw_conversation",
+        granted_by="user_123",
+        granted_at=now_iso,
     )
-    
+
     record, claims = memory.register_conversation(
-        turns=[
-            Turn(speaker="user", text="I am severely allergic to penicillin.", timestamp=now_iso)
-        ],
+        [Turn("user", "I am severely allergic to penicillin.", now_iso)],
         agent_id="medical_agent",
         user_id="user_123",
-        consent=consent
+        consent=consent,
     )
-    
+
     print(f"Captured record ID: {record.id}")
     for c in claims:
         print(f"Claim [{c.tier.value}]: {c.subject} -> {c.text}")
 
-    # 3. Retrieve tiered context for LLM prompt
+    # 3. Retrieve tiered context for the LLM prompt (active T2/T3 only)
     context = memory.recall("penicillin allergy", agent_id="medical_agent")
-    
-    # Inject into prompt
     print("\n--- Tiered Prompt Block ---")
     print(context.as_prompt_block())
 ```
@@ -239,13 +239,13 @@ with Embudo.open("memory.db") as memory:
 embudo stats memory.db
 ```
 
-Output:
+Output (real example):
 ```text
 Embudo v0.2.0 — memory.db
 esquema: v2
-claims activos: 14 (T1: 4, T2: 8, T3: 2)
-estados: active: 14, superseded: 3, expired: 1
-eventos de custodia: created: 18, reinforced: 9, superseded: 3, promoted: 2
+claims activos: 14 (T1 4, T2 8, T3 2)
+estados: active 14, expired 1, superseded 3
+eventos de custodia: extraction 18, expiration 1, promotion 2, reinforcement 9, supersession 3
 conversaciones T0: 12
 construcciones de índice: 4
 ```
@@ -255,23 +255,42 @@ construcciones de índice: 4
 ## 🧱 Data Model (`MemoryClaim`)
 
 ```python
-@dataclass(frozen=True)
+@dataclass
 class MemoryClaim:
     id: str                        # Deterministic hash of (agent_id, subject, normalized_text)
     agent_id: str                  # Isolated namespace / agent identifier
     subject: str                   # Normalized topic or entity (for indexing and deduplication)
-    text: str                      # Stored claim in normalized canonical form
-    tier: Tier                     # T0 | T1 | T2 | T3
-    confidence: float              # Tier-specific internal score (0.0 to 1.0)
+    text: str                      # The claim as it was said
+    tier: Tier                     # T1 | T2 | T3 (T0 is the conversation, not a claim)
+    confidence: float              # Base confidence from the extraction marker (fixed)
     source_conversation_ids: list  # Full provenance tracking back to T0 logs
-    first_seen_at: str             # ISO timestamp of first capture
-    last_reinforced_at: str        # ISO timestamp of latest reinforcement
-    reinforcement_count: int       # Number of independent session confirmations
-    supersedes: str | None         # ID of past claim invalidated by this one
+    first_seen_at: str             # UTC ISO timestamp of first capture
+    last_reinforced_at: str        # UTC ISO timestamp of latest reinforcement
+    reinforcement_count: int       # Confirmations across independent sessions
+    supersedes: str | None         # ID of past claim replaced by this one
     superseded_by: str | None      # ID of successor claim if invalidated
-    decay_half_life_days: int      # Half-life duration before confidence decay
-    status: ClaimStatus            # active | superseded | expired | rejected
+    decay_half_life_days: int      # Half-life in days (<= 0: never decays)
+    status: Status                 # active | superseded | expired | rejected
 ```
+
+---
+
+## 📈 Project Status
+
+**Everything listed below is implemented and verified by the test suite (177 tests, offline, 100% deterministic, no LLM, no credentials).**
+
+| Component | Status |
+|---|---|
+| Full T0→T3 pipeline (capture, extraction, reinforcement, promotion, decay, revival) | ✅ |
+| Anti-echo: contradiction before match, multi-session reinforcement, non-destructive succession | ✅ |
+| `SqliteClaimStore` + transactional custody chain (canonical event payloads, FK, versioned migrations) | ✅ |
+| Public `embudo` facade + `embudo stats` CLI | ✅ |
+| Snapshot-invalidated retrieval index cache | ✅ |
+| Derived accumulated confidence (telemetry, not a gate) | ✅ |
+
+**Pending (decided in the collaboration log, not yet implemented):** T4 — wiki as curated source and T3→note exporter (Phase D); MagnusAgent bridge via its `MemoryEngine` port (Phase C, lives in Magnus as an optional dependency); LLM-assisted extraction and promotion LLM-judge (Phase E); Learning Path by domains (Phase F); CI and right-to-be-forgotten (Phase G); the real Phase 7 pilot — the technical substrate is complete.
+
+> Project rule: documentation never runs ahead of the code. If a row above says ✅, a test proves it; if it says pending, it does not exist yet.
 
 ---
 

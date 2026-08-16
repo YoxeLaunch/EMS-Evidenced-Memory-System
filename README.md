@@ -39,6 +39,7 @@ Conversación (T0) ➔ Candidata Extraída (T1) ➔ Evidencia Reforzada (T2) ➔
   - [Uso con la Fachada Python](#uso-con-la-fachada-python)
   - [Inspección con CLI](#inspección-con-cli)
 - [Modelo de Datos (`MemoryClaim`)](#-modelo-de-datos-memoryclaim)
+- [Estado del Proyecto](#-estado-del-proyecto)
 - [Documentación Técnica](#-documentación-técnica)
 - [Posicionamiento](#-posicionamiento)
 
@@ -74,7 +75,7 @@ graph LR
     T0["<b>T0: Registro Crudo</b><br/>Diálogo sin procesar<br/><i>Consentimiento previo</i>"] -->|Extracción Determinista| T1["<b>T1: Candidata</b><br/>Hipótesis aislada<br/><i>No citable</i>"]
     T1 -->|Refuerzo multi-sesión| T2["<b>T2: Evidencia Reforzada</b><br/>Evidencia recurrente<br/><i>Citable con incertidumbre visible</i>"]
     T2 -->|Evaluador de Promoción / Humano| T3["<b>T3: Conocimiento Promovido</b><br/>Autoridad plena<br/><i>Citable con procedencia</i>"]
-    T4["<b>T4: Fuente Curada</b><br/>Verificada por humano<br/><i>Máxima precedencia operativa</i>"] -.->|Ancla de verdad| T3
+    T4["<b>T4: Fuente Curada</b><br/>Verificada por humano<br/><i>⏳ Decidido — pendiente (Fase D)</i>"] -.->|Ancla de verdad| T3
 
     classDef t0 fill:#eceff1,stroke:#607d8b,stroke-width:2px,color:#263238;
     classDef t1 fill:#fff9c4,stroke:#fbc02d,stroke-width:2px,color:#f57f17;
@@ -93,9 +94,9 @@ graph LR
 |:---:|:---|:---|:---:|:---|
 | **T0** | **Registro Crudo** | Diálogo crudo persistido con consentimiento explícito. | ❌ **No** | Excluido de la recuperación RAG. |
 | **T1** | **Candidata Extraída** | Afirmación detectada en una sola sesión. | ❌ **No** | En observación interna. Nunca citada al usuario. |
-| **T2** | **Evidencia Reforzada** | Afirmación validada en múltiples conversaciones distintas. | ⚠️ **Con Incertidumbre** | Inyectada con etiquetas de advertencia (`[EVIDENCIA T2]`). |
-| **T3** | **Conocimiento Promovido** | Superó el evaluador de consistencia o validación humana. | ✅ **Sí** | Inyectada con autoridad plena y hash de procedencia. |
-| **T4** | **Fuente Curada** | Documentación o verdad ingresada manualmente por un humano. | ✅ **Máxima Precedencia** | Prevalece ante cualquier conflicto. |
+| **T2** | **Evidencia Reforzada** | Afirmación validada en múltiples conversaciones distintas. | ⚠️ **Con Incertidumbre** | Inyectada con etiqueta visible `confianza_media`. |
+| **T3** | **Conocimiento Promovido** | Superó el evaluador de consistencia o validación humana. | ✅ **Sí** | Inyectada con `autoridad_plena` y hash de procedencia. |
+| **T4** | **Fuente Curada** ⏳ | Documentación o verdad ingresada por humano. **Decidido ([D-11] del log), pendiente de implementar (Fase D).** | ✅ (al implementarse) | Máxima precedencia operativa ante conflictos. |
 
 ---
 
@@ -165,21 +166,23 @@ sequenceDiagram
     participant EMS as Fachada Embudo
     participant DB as SQLite ClaimStore
 
-    Note over Usuario, DB: Fase 1: Afirmación Inicial
-    Usuario->>EMS: "Vivo en Madrid"
-    EMS->>DB: Guarda Claim #101 (Sujeto: residencia, Valor: Madrid, Nivel: T2, Estado: active)
+    Note over Usuario, DB: Fase 1: Declaración (entra como T1)
+    Usuario->>EMS: "Como carne todos los días"
+    EMS->>DB: Guarda Claim #101 (Sujeto: carne, Tier: T1, Estado: active)
 
-    Note over Usuario, DB: Fase 2: Contradicción Posterior
-    Usuario->>EMS: "La semana pasada me mudé a Barcelona"
-    EMS->>EMS: Detecta contradicción en el sujeto 'residencia'
-    EMS->>DB: Crea Claim #205 (Sujeto: residencia, Valor: Barcelona, Nivel: T2, supersedes: #101)
-    EMS->>DB: Actualiza Claim #101 (Estado: superseded, superseded_by: #205)
+    Note over Usuario, DB: Fase 2: Cambio de estado declarado
+    Usuario->>EMS: "Ya no como carne"
+    EMS->>EMS: Negación explícita detectada ANTES del match semántico
+    EMS->>DB: Crea Claim #205 (Tier: T1 — no hereda autoridad, supersedes: #101)
+    EMS->>DB: Marca #101 (Estado: superseded, superseded_by: #205) + evento de custodia
 
     Note over Usuario, DB: Fase 3: Recuperación
-    Usuario->>EMS: Consulta "¿Dónde vivo?"
-    EMS->>DB: Recupera únicamente claims activos
-    DB-->>EMS: Retorna Claim #205 (Barcelona) [#101 queda excluido de la recuperación activa]
-    EMS-->>Usuario: "Vives en Barcelona (sustituyó tu residencia previa en Madrid)"
+    Usuario->>EMS: "¿Qué como?"
+    EMS->>DB: Recupera únicamente claims activos T2/T3
+    DB-->>EMS: #205 sigue en T1 → aún no citable como hecho
+    EMS-->>Usuario: Sin evidencia citable todavía (necesita refuerzo multi-sesión)
+
+    Note over Usuario, DB: La detección es EXPLÍCITA (negación literal con<br/>prefijos "ya no/dejé de"); la contradicción implícita o semántica<br/>("me mudé a otra ciudad") es problema abierto, no prometido.
 ```
 
 ---
@@ -203,33 +206,30 @@ from memory.capture import Turn, Consent
 
 # 1. Abrir la base de datos de memoria persistente
 with Embudo.open("memoria.db") as memoria:
-    ahora = datetime.now(timezone.utc).isoformat()
-    
+    ahora = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
     # 2. Registrar turno con consentimiento explícito del usuario
+    #    (sin Consent concedido no se escribe NADA — ConsentRequired)
     consentimiento = Consent(
         granted=True,
-        scope="perfil_y_preferencias",
-        user_id="usuario-1",
-        timestamp=ahora
+        scope="raw_conversation",
+        granted_by="usuario-1",
+        granted_at=ahora,
     )
-    
+
     record, claims = memoria.register_conversation(
-        turns=[
-            Turn(speaker="user", text="Soy alérgico a la penicilina.", timestamp=ahora)
-        ],
+        [Turn("user", "Soy alérgico a la penicilina.", ahora)],
         agent_id="dr_soma",
         user_id="usuario-1",
-        consent=consentimiento
+        consent=consentimiento,
     )
-    
+
     print(f"ID conversación registrada: {record.id}")
     for c in claims:
         print(f"Claim [{c.tier.value}]: {c.subject} -> {c.text}")
 
-    # 3. Recuperar contexto clasificado para el LLM
-    contexto = memoria.recall("alergias del paciente", agent_id="dr_soma")
-    
-    # Inyectar en el prompt
+    # 3. Recuperar contexto clasificado para el LLM (solo T2/T3 activos)
+    contexto = memoria.recall("alergico a la penicilina", agent_id="dr_soma")
     print("\n--- Bloque RAG Nivelado ---")
     print(contexto.as_prompt_block())
 ```
@@ -241,13 +241,13 @@ with Embudo.open("memoria.db") as memoria:
 embudo stats memoria.db
 ```
 
-Salida:
+Salida (ejemplo real):
 ```text
 Embudo v0.2.0 — memoria.db
 esquema: v2
-claims activos: 14 (T1: 4, T2: 8, T3: 2)
-estados: active: 14, superseded: 3, expired: 1
-eventos de custodia: created: 18, reinforced: 9, superseded: 3, promoted: 2
+claims activos: 14 (T1 4, T2 8, T3 2)
+estados: active 14, expired 1, superseded 3
+eventos de custodia: extraction 18, expiration 1, promotion 2, reinforcement 9, supersession 3
 conversaciones T0: 12
 construcciones de índice: 4
 ```
@@ -257,23 +257,42 @@ construcciones de índice: 4
 ## 🧱 Modelo de Datos (`MemoryClaim`)
 
 ```python
-@dataclass(frozen=True)
+@dataclass
 class MemoryClaim:
     id: str                        # Hash determinista de (agent_id, subject, texto_normalizado)
     agent_id: str                  # Espacio de nombres / identificador del agente
     subject: str                   # Entidad o tema normalizado (para indexado y deduplicación)
-    text: str                      # Afirmación almacenada en forma canónica
-    tier: Tier                     # T0 | T1 | T2 | T3
-    confidence: float              # Puntuación interna de confianza (0.0 a 1.0)
+    text: str                      # La afirmación tal cual se dijo
+    tier: Tier                     # T1 | T2 | T3 (T0 es la conversación, no un claim)
+    confidence: float              # Confianza base según el marcador de extracción (fija)
     source_conversation_ids: list  # Trazabilidad completa hacia los registros T0 originales
-    first_seen_at: str             # Marca de tiempo de primera captura
-    last_reinforced_at: str        # Marca de tiempo del último refuerzo
-    reinforcement_count: int       # Conteo de confirmaciones en sesiones independientes
+    first_seen_at: str             # Marca de tiempo UTC de primera captura
+    last_reinforced_at: str        # Marca de tiempo UTC del último refuerzo
+    reinforcement_count: int       # Confirmaciones en conversaciones independientes
     supersedes: str | None         # ID de la afirmación anterior reemplazada por esta
     superseded_by: str | None      # ID de la afirmación sucesora si fue invalidada
-    decay_half_life_days: int      # Vida media en días antes de iniciar pérdida de peso
-    status: ClaimStatus            # active | superseded | expired | rejected
+    decay_half_life_days: int      # Vida media en días (<= 0: sin caducidad)
+    status: Status                 # active | superseded | expired | rejected
 ```
+
+---
+
+## 📈 Estado del Proyecto
+
+**Todo lo listado abajo está implementado y verificado por la suite (177 tests, offline, 100% determinista, sin LLM ni credenciales).**
+
+| Componente | Estado |
+|---|---|
+| Pipeline T0→T3 completo (captura, extracción, refuerzo, promoción, caducidad, revival) | ✅ |
+| Anti-eco: contradicción antes que match, refuerzo multi-sesión, sucesión no destructiva | ✅ |
+| `SqliteClaimStore` + cadena de custodia transaccional (events con payload canónico, FK, migraciones versionadas) | ✅ |
+| Fachada pública `embudo` + CLI `embudo stats` | ✅ |
+| Índice de recuperación con invalidación por snapshot | ✅ |
+| Confianza acumulativa derivada (telemetría, no gate) | ✅ |
+
+**Pendiente (decidido en el log de colaboración, sin implementar):** T4 — wiki como fuente curada y exportador T3→nota (Fase D); bridge con MagnusAgent vía su puerto `MemoryEngine` (Fase C, vive en Magnus como dependencia opcional); extractor asistido por LLM y LLM-as-judge de promoción (Fase E); Camino de Aprendizaje por dominios (Fase F); CI y derecho al olvido (Fase G); piloto real de Fase 7 — el sustrato técnico ya está completo.
+
+> Regla del proyecto: la documentación no se adelanta al código. Si algo de arriba dice ✅, hay un test que lo demuestra; si dice pendiente, aún no existe.
 
 ---
 

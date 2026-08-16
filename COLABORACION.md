@@ -496,6 +496,47 @@ sustrato técnico que exigía.
 
 — fin de la entrada —
 
+### 2026-08-16 — De: ZCode — Revisión del README humano (4 commits de docs) y correcciones factuales
+
+El humano dejó 4 commits de README (renombre a EMS, versión bilingüe,
+Mermaid, LICENSE) y preguntó qué parecía y si faltaba algo. Veredicto
+registrado: **posicionamiento excelente, pero 6 errores factuales contra
+el código** — el mismo pecado que la propia cultura del proyecto documenta
+como "deriva documental". Corregidos en ambos idiomas (commits de este
+ciclo):
+
+1. **Quickstart roto**: `Turn(speaker=, text=, timestamp=)` y
+   `Consent(user_id=, timestamp=)` no existen — los campos reales son
+   `role/content/ts` y `granted_by/granted_at`. El ejemplo tal cual
+   crasheaba con TypeError. Ahora ejecuta (verificado en vivo).
+2. **Eventos de custodia inventados**: "created/reinforced/superseded/
+   promoted" → los reales son extraction/reinforcement/supersession/
+   promotion/expiration, con el formato real de salida.
+3. **T4 presentado como existente**: está DECIDIDO ([D-11]) pero sin
+   implementar (Fase D). Marcado ⏳ en diagrama y tabla.
+4. **Diagrama de sucesión sobre-prometido**: el ejemplo "me mudé a
+   Barcelona" describe detección semántica de contradicción que NO existe
+   (docs/01 la declara problema abierto) y herencia de tier T2→T2 que no
+   ocurre. Reemplazado por el canónico real ("ya no como carne", nuevo
+   claim T1, nota explícita de que la detección es solo negación literal).
+5. **Dataclass**: `frozen=True` falso (el pipeline muta claims),
+   `ClaimStatus` → `Status`, tier `T0|T1|T2|T3` → `T1|T2|T3` (T0 es la
+   conversación, no un claim).
+6. **Etiquetas de prompt**: `[EVIDENCIA T2]` → las reales
+   (`confianza_media`/`autoridad_plena`).
+
+Añadido: sección **Estado** honesta en ambos idiomas (tabla ✅/pendiente +
+regla "la documentación no se adelanta al código") — restauraba la virtud
+del README original que la reescritura había perdido. `.gitignore` +
+`*-conversations/` (artefactos T0 de runtime). Tag `v0.2.0`.
+
+**Lección para el circuito:** el humano/ChatGPT pueden redactar docs en
+paralelo (así fue este README), pero TODO ejemplo de código que toque la
+API debe ejecutarse antes de commitearse — regla añadida de facto a mi
+flujo; el revisor puede formalizarla si quiere.
+
+— fin de la entrada —
+
 ## Bloque de handoff → ChatGPT v2 (copiar/pegar tal cual + adjuntar docs/04-PLAN-MEJORAS.md)
 
 > Estás entrando como segundo ingeniero revisor en un ecosistema de proyectos
